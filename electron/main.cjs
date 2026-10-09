@@ -6,6 +6,7 @@ let window;
 let tray;
 let gateway;
 let quitting = false;
+let shutdownPromise;
 let service;
 let directory;
 let networkBusy = false;
@@ -23,7 +24,6 @@ function createWindow() {
     window.loadFile(path.join(__dirname, 'index.html'));
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-navigate', event => event.preventDefault());
-    window.on('close', event => { if (!quitting) { event.preventDefault(); window.hide(); } });
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -141,14 +141,17 @@ else {
     });
 }
 
-app.on('activate', () => window?.show());
-app.on('window-all-closed', () => {});
+app.on('activate', () => { if (window && !window.isDestroyed()) window.show(); });
+app.on('window-all-closed', () => app.quit());
 app.on('before-quit', event => {
     if (quitting) return;
     event.preventDefault();
-    const choice = dialog.showMessageBoxSync(window, { type: 'question', buttons: ['Keep Running', 'Quit'], defaultId: 0,
-        cancelId: 0, message: 'Stop the local proxy?', detail: 'Codex requests through this proxy will stop until you reopen Auth Switcher.' });
-    if (choice !== 1) return;
-    quitting = true;
-    Promise.resolve(gateway?.close()).finally(() => app.quit());
+    // Repeated quit events share shutdown; finish pending statistics writes before exiting.
+    if (shutdownPromise) return;
+    shutdownPromise = Promise.resolve().then(() => gateway?.close()).catch(async () => {
+        await gateway?.notifyError?.({ code: 'proxy_shutdown_failed' });
+    }).finally(() => {
+        quitting = true;
+        app.quit();
+    });
 });

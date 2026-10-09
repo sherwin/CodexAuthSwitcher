@@ -56,8 +56,10 @@ Key mode means a fixed local proxy key, not converting a subscription token into
 Stop active Codex tasks before changing modes or direct authorization files; other Codex processes
 can still independently refresh credentials. Timestamp/UUID backups stay in the private state directory.
 
-Closing the window hides it; the tray icon opens it again. Quitting the application stops its proxy.
-If a standalone service already owns the port, the window connects to that service instead.
+Closing the window exits the application and stops its owned proxy without a confirmation dialog,
+including active proxy requests. Pending statistics writes finish before exit.
+If a standalone service already owns the port, the window connects to that service instead;
+closing the window does not stop that independently owned service.
 The desktop does not offer a restore action; private safety backups are retained.
 
 ## Standalone service
