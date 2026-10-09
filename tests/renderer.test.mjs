@@ -3,6 +3,17 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
+test('token counts use K M B with two decimals, promote rounded boundaries and preserve small values', async () => {
+    const source = await readFile(new URL('../electron/renderer.js', import.meta.url), 'utf8');
+    const context = vm.createContext({});
+    vm.runInContext(source.slice(source.indexOf('const number ='), source.indexOf('function renderStatistics(')), context);
+    for (const [value, expected] of [[undefined, '0'], [999, '999'], [1000, '1K'], [1234, '1.23K'],
+        [999994, '999.99K'], [999999, '1M'], [1000000, '1M'], [1250000, '1.25M'],
+        [999999999, '1B'], [1234567890, '1.23B'], ['2300000', '2.3M'], [NaN, '0'], [-1, '0']]) {
+        assert.equal(context.tokenNumber(value), expected);
+    }
+});
+
 test('reset cards show only the nearest valid expiry across ISO, seconds and milliseconds', async () => {
     const source = await readFile(new URL('../electron/renderer.js', import.meta.url), 'utf8');
     const context = vm.createContext({});

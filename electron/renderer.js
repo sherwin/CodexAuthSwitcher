@@ -38,6 +38,14 @@ function selectWorkspace(tab) {
 }
 
 const number = value => Number(value || 0).toLocaleString('zh-CN');
+function tokenNumber(value) {
+    const count = Number(value || 0);
+    if (!Number.isFinite(count) || count < 0) return '0';
+    const units = [{ divisor: 1e9, suffix: 'B' }, { divisor: 1e6, suffix: 'M' }, { divisor: 1e3, suffix: 'K' }];
+    const unit = units.find(item => count >= item.divisor ||
+        (count >= item.divisor / 1000 && Number((count / item.divisor * 1000).toFixed(2)) >= 1000));
+    return unit ? Number((count / unit.divisor).toFixed(2)).toLocaleString('en-US') + unit.suffix : number(count);
+}
 function renderStatistics() {
     if (!statisticsData) return;
     const period = statisticsPeriod;
@@ -66,10 +74,13 @@ function renderStatistics() {
     document.querySelector('#statistics-title').textContent = `${{ day: '今日', week: '本周', month: '本月' }[period]} Token 用量`;
     document.querySelector('#statistics-day').textContent = `${data.start === data.end ? data.start : data.start + ' 至 ' + data.end} · 北京时间 · 周一开始 / 自然月 · 数据保存在本机`;
     const summary = document.querySelector('#statistics-summary');
-    summary.replaceChildren(metric('总 Token', number(totals?.total_tokens), '已收到上游用量', 'good'),
-        metric('输入 Token', number(totals?.input_tokens), `其中缓存 ${number(totals?.cached_tokens)}`),
-        metric('输出 Token', number(totals?.output_tokens), `其中推理 ${number(totals?.reasoning_tokens)}`),
+    summary.replaceChildren(metric('总 Token', tokenNumber(totals?.total_tokens), '已收到上游用量', 'good'),
+        metric('输入 Token', tokenNumber(totals?.input_tokens), `其中缓存 ${tokenNumber(totals?.cached_tokens)}`),
+        metric('输出 Token', tokenNumber(totals?.output_tokens), `其中推理 ${tokenNumber(totals?.reasoning_tokens)}`),
         metric('请求次数', number(totals?.requests), `已知用量 ${number(totals?.measured_requests)} 次`));
+    [totals?.total_tokens, totals?.input_tokens, totals?.output_tokens].forEach((count, index) => {
+        summary.children[index].title = `${number(count)} Token`;
+    });
     document.querySelector('#statistics-coverage').textContent = totals?.unknown_requests
         ? `${number(totals.unknown_requests)} 次请求未收到完整用量（中断、失败或上游未提供），总 Token 可能低于实际消耗。`
         : '无未知用量请求。未经过本地代理的调用不在统计范围内。';
@@ -81,7 +92,7 @@ function renderStatistics() {
     chart.setAttribute('aria-label', hours.map((count, index) => `${data.buckets[index]} ${period === 'day' ? '点' : ''} ${number(count)} Token`).join('，'));
     for (let hour = 0; hour < hours.length; hour++) {
         const column = element('div', 'hour-column');
-        column.title = `${period === 'day' ? hour + ':00–' + hour + ':59' : data.buckets[hour]} · ${number(hours[hour])} Token`;
+        column.title = `${period === 'day' ? hour + ':00–' + hour + ':59' : data.buckets[hour]} · ${tokenNumber(hours[hour])} Token（${number(hours[hour])}）`;
         const meter = element('meter', 'hour-meter');
         meter.min = 0; meter.max = max; meter.value = hours[hour];
         meter.setAttribute('aria-label', column.title);
@@ -92,8 +103,11 @@ function renderStatistics() {
     table.replaceChildren();
     for (const account of rows) {
         const row = element('tr');
-        for (const text of [account.name, number(account.input_tokens), number(account.output_tokens),
-            number(account.total_tokens), number(account.requests), number(account.unknown_requests)]) row.append(element('td', '', text));
+        for (const text of [account.name, tokenNumber(account.input_tokens), tokenNumber(account.output_tokens),
+            tokenNumber(account.total_tokens), number(account.requests), number(account.unknown_requests)]) row.append(element('td', '', text));
+        [account.input_tokens, account.output_tokens, account.total_tokens].forEach((count, index) => {
+            row.children[index + 1].title = `${number(count)} Token`;
+        });
         row.title = account.aliases?.join(' · ') || account.name;
         table.append(row);
     }
