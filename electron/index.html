@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'">
+  <title>Codex Auth Switcher</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="home-page">
+  <header>
+    <div><p class="eyebrow">LOCAL ACCOUNT GATEWAY</p><h1>Codex Auth Switcher</h1><p class="muted">本地代理与 Codex 连接配置，独立管理。</p></div>
+    <div class="actions"><button id="open-statistics" class="statistics-link" aria-label="查看日周月 Token 用量"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10m8 10V4m8 16v-7"/></svg>用量统计</button><button id="refresh">刷新额度</button></div>
+  </header>
+  <nav id="workspace-tabs" class="workspace-tabs" role="tablist" aria-label="配置管理">
+    <button id="tab-proxy" role="tab" aria-selected="true" aria-controls="proxy-page" tabindex="0">本地代理</button>
+    <button id="tab-codex" role="tab" aria-selected="false" aria-controls="codex-page" tabindex="-1">Codex 配置</button>
+  </nav>
+  <section id="proxy-page" role="tabpanel" aria-labelledby="tab-proxy">
+  <div class="proxy-settings">
+  <section class="gateway">
+    <div><div class="status-line"><span id="dot" class="dot"></span><strong id="gateway-status">连接本地代理…</strong><span class="tag">Node.js</span></div>
+      <p id="gateway-detail" class="muted">127.0.0.1:18888 · 固定本地密钥 · 流式转发</p>
+    </div>
+  </section>
+  <p class="muted proxy-note">独立运行 · 不受 Codex 认证模式影响</p>
+  <section class="network-panel">
+    <div class="network-controls">
+    <label><input id="lan-enabled" type="checkbox"> 允许局域网访问</label>
+    <label>端口 <input id="proxy-port" type="number" min="1024" max="65535" value="18888" step="1"></label>
+    <button id="apply-network">应用网络设置</button>
+    <span id="network-status" class="muted" role="status"></span>
+    </div>
+    <p id="network-addresses" class="muted"></p>
+    <p class="muted network-help">默认 18888 · 管理接口仅限本机 · 局域网 HTTP 不加密，请勿公网转发。Key 模式改端口会同步 Codex 地址，需重启 Codex；远程客户端须自行更新。</p>
+  </section>
+  <details id="curl-panel">
+    <summary>curl 调用示例 · 本地 Responses API</summary>
+    <div class="curl-controls"><label>调用地址 <select id="curl-target"><option value="127.0.0.1">本机</option></select></label>
+    <label>返回方式 <select id="curl-stream"><option value="false">普通 JSON（默认）</option><option value="true">流式 SSE（Codex）</option></select></label>
+    </div>
+    <p class="muted">默认返回完整 JSON。预览隐藏 Key，一键复制包含真实本地 Key；消耗代理出口账号额度。请勿公开命令，Key 会留在剪贴板和终端历史中。</p>
+    <div class="curl-command"><div class="curl-command-heading"><span class="muted">curl</span><button id="copy-curl" class="text-button" aria-label="一键复制完整 curl">复制</button></div><pre id="curl-preview"></pre></div>
+    <span id="curl-copy-status" class="muted" role="status"></span>
+  </details>
+  </div>
+  <div class="list-heading"><h2>代理出口账号</h2><button id="directory" class="text-button">选择授权目录</button></div>
+  <p class="muted">切换只影响代理的新请求，不修改 Codex 直连授权；进行中的请求继续使用原账号。</p>
+  <p id="directory-path" class="muted path"></p>
+  <main id="accounts"><p class="muted">读取账号…</p></main>
+  </section>
+  <section id="codex-page" role="tabpanel" aria-labelledby="tab-codex" hidden>
+    <section class="card codex-panel" aria-labelledby="codex-title">
+      <div class="list-heading"><h2 id="codex-title">Codex 连接配置</h2></div>
+      <p class="notice" id="setup-note">读取 Codex 连接方式…</p>
+      <div id="codex-modes" class="period-switch" role="group" aria-label="Codex 模式">
+        <button data-mode="unconfigured" aria-pressed="true">空</button><button data-mode="key" aria-pressed="false">Key 模式</button><button data-mode="auth_file" aria-pressed="false">授权文件</button>
+      </div>
+      <div id="mode-empty" class="mode-content"><h3>空 · 不管理 Codex 配置</h3><p class="muted">首次默认选项。不清除、不改写 config.toml 或 auth.json；Codex 继续使用它自己的现有配置。本地代理仍独立运行。</p><button id="unconfigure">设为空（保留现有配置）</button></div>
+      <div id="mode-key" class="mode-content" hidden><h3>Key · 连接本地代理</h3><p class="muted">自动配置 Base URL 和本地 Key，使用「本地代理」Tab 中的出口授权文件。</p><button id="configure" class="primary">应用 Key 模式</button></div>
+      <div id="mode-auth-file" hidden><div class="list-heading codex-account-heading"><h3>Codex 授权文件</h3><button id="codex-directory" class="text-button">选择授权目录</button></div><p class="muted">点击卡片直接覆盖 Codex 授权文件，不刷新令牌、不校验额度，也不改变代理出口。应用后需重启 Codex；文件失效时仍需重新登录。</p><p id="codex-directory-path" class="muted path"></p><div id="codex-accounts"><p class="muted">读取账号…</p></div></div>
+    </section>
+  </section>
+  </div>
+  <section id="statistics-page" hidden aria-labelledby="statistics-title">
+    <header><div><button id="back-home" class="text-button">← 返回账号</button><h1 id="statistics-title">今日 Token 用量</h1><p id="statistics-day" class="muted"></p></div>
+    </header>
+    <div class="statistics-toolbar">
+      <div id="statistics-period" class="period-switch" role="group" aria-label="统计周期">
+        <button type="button" data-period="day" aria-pressed="true">今日</button>
+        <button type="button" data-period="week" aria-pressed="false">本周</button>
+        <button type="button" data-period="month" aria-pressed="false">本月</button>
+      </div>
+      <div class="actions"><select id="statistics-account" aria-label="筛选账号"><option value="all">全部账号</option></select><button id="refresh-statistics">刷新统计</button></div>
+    </div>
+    <p class="notice">仅统计本地代理收到的上游用量，包含 Codex、curl 和局域网调用。按请求结束时的北京时间归属日期；启用前的历史用量无法补算。缓存已包含在输入中，推理已包含在输出中，不重复累加。</p>
+    <div id="statistics-summary" class="metrics"></div>
+    <p id="statistics-coverage" class="muted" role="status"></p>
+    <section class="card statistics-chart"><h2 id="statistics-chart-title">每小时 Token</h2><div id="statistics-hours" class="hour-chart" role="img" aria-label="今日每小时 Token 柱状图"></div></section>
+    <section class="card"><h2>账号用量</h2><div class="statistics-table-wrap"><table class="statistics-table"><thead><tr><th>账号</th><th>输入</th><th>输出</th><th>总 Token</th><th>请求</th><th>用量未知</th></tr></thead><tbody id="statistics-rows"></tbody></table></div></section>
+    <p id="statistics-status" class="muted" role="status"></p>
+  </section>
+  <div id="notification" class="notification" hidden><span id="message" role="status" aria-live="polite"></span><button id="dismiss-notification" type="button" aria-label="关闭提示">×</button></div>
+  <script src="renderer.js"></script>
+</body>
+</html>

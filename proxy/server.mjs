@@ -1,0 +1,450 @@
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { promises as fs } from 'node:fs';
+import { timingSafeEqual } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { fetch as undiciFetch, ProxyAgent, Agent } from 'undici';
+import { defaultDirectory, initialize, readJSON, writeJSON, locked, accountPath, provider,
+    codexDirectory, ProxyError } from './storage.mjs';
+import { Credentials, upstream, claims, responseError, syncActive } from './credentials.mjs';
+import { configure, configureAuthFile, unconfigure, restore, inspectConfiguration } from './config.mjs';
+import { isLoopback, isPrivateAddress, lanAddresses } from './network.mjs';
+import { collectResponse } from './responses.mjs';
+import { eventObserver } from './sse.mjs';
+import { TokenStatistics, usageAccount, normalizedUsage } from './statistics.mjs';
+import { querySubscription } from './subscription.mjs';
+
+const maxBody = 32 * 1024 * 1024;
+const retryableAuthCodes = new Set(['token_expired', 'invalid_token', 'token_invalidated']);
+
+export function upstreamFetch() {
+    let proxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY;
+    if (!proxy && process.platform === 'darwin') {
+        try {
+            const settings = execFileSync('/usr/sbin/scutil', ['--proxy'], { encoding: 'utf8', timeout: 2000 });
+            if (/HTTPSEnable\s*:\s*1/.test(settings)) {
+                const host = settings.match(/HTTPSProxy\s*:\s*(\S+)/)?.[1];
+                const port = settings.match(/HTTPSPort\s*:\s*(\d+)/)?.[1];
+                if (host && port) proxy = `http://${host}:${port}`;
+            }
+        } catch { /* Direct connections on platforms without system HTTP proxy settings. */ }
+    }
+    const dispatcher = proxy ? new ProxyAgent(proxy) : new Agent({ headersTimeout: 300000, bodyTimeout: 300000 });
+    return (url, options = {}) => undiciFetch(url, { ...options, dispatcher });
+}
+
+async function bodyJSON(request) {
+    if (request.headers['content-encoding'] && request.headers['content-encoding'] !== 'identity') {
+        throw new ProxyError('Request compression is unsupported.', 'unsupported_encoding', 415);
+    }
+    let size = 0;
+    const chunks = [];
+    for await (const chunk of request) {
+        size += chunk.length;
+        if (size > maxBody) throw new ProxyError('Request body too large.', 'body_too_large', 413);
+        chunks.push(chunk);
+    }
+    try {
+        const value = JSON.parse(Buffer.concat(chunks));
+        if (!value || Array.isArray(value) || typeof value !== 'object') throw new Error();
+        return value;
+    } catch { throw new ProxyError('Expected a JSON object.', 'invalid_body', 400); }
+}
+
+function sendJSON(response, status, value, extraHeaders = {}) {
+    const body = JSON.stringify(value);
+    response.writeHead(status, { ...extraHeaders, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body),
+        'Cache-Control': 'no-store' });
+    response.end(body);
+}
+
+function authenticated(request, key) {
+    const expected = Buffer.from(`Bearer ${key}`);
+    const actual = Buffer.from(request.headers.authorization || '');
+    return actual.length === expected.length && timingSafeEqual(actual, expected) && !request.headers.origin;
+}
+
+export async function createGateway(directory, { fetchUpstream = upstreamFetch(), fetchSubscription = fetchUpstream, codexHome = codexDirectory } = {}) {
+    const statePath = path.join(directory, 'proxy.json');
+    const initial = await readJSON(statePath);
+    const credentials = new Credentials(directory, initial.auth_directory, fetchUpstream);
+    const statistics = new TokenStatistics(directory);
+    const metrics = { in_flight: 0, last_error: null, last_account: null, completed_requests: 0 };
+    const controllers = new Set();
+    const pendingRequests = new Set();
+    let paused = false;
+    let codexConnection = null;
+    let configurationGeneration = 0;
+    const notified = new Map();
+
+    async function report(error, name) {
+        metrics.last_error = { code: error.code || 'upstream_unavailable', account: name || null, at: new Date().toISOString() };
+        const webhook = process.env.AUTH_SWITCHER_DINGTALK_WEBHOOK;
+        if (!webhook) { metrics.last_error.notification = 'DingTalk webhook not configured'; return; }
+        const id = `${name}:${metrics.last_error.code}`;
+        if (Date.now() - (notified.get(id) || 0) < 300000) return;
+        notified.set(id, Date.now());
+        try {
+            const result = await fetchUpstream(webhook, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ msgtype: 'text', text: { content: `Codex Auth Switcher: ${name || 'proxy'} / ${metrics.last_error.code}` } }),
+                redirect: 'error', signal: AbortSignal.timeout(5000) });
+            const data = await result.json();
+            if (!result.ok || data.errcode !== 0) metrics.last_error.notification = 'DingTalk delivery failed';
+        } catch { metrics.last_error.notification = 'DingTalk delivery failed'; }
+    }
+
+    async function selectedRecord(name) {
+        const state = await readJSON(statePath);
+        if (state.mode === 'auth_file') await syncActive(state.auth_directory, codexHome);
+        return credentials.get(accountPath(state, name));
+    }
+
+    async function usage(name) {
+        const state = await readJSON(statePath);
+        if (state.mode === 'auth_file') await syncActive(state.auth_directory, codexHome);
+        const file = accountPath(state, name);
+        let record = await credentials.get(file);
+        if (record.OPENAI_API_KEY) throw new ProxyError('Subscription usage is unavailable for API keys.', 'usage_unavailable', 400);
+        const fetchUsage = current => fetchUpstream('https://chatgpt.com/backend-api/wham/usage', {
+            headers: { Authorization: `Bearer ${current.tokens.access_token}`, 'ChatGPT-Account-Id': current.tokens.account_id,
+                originator: 'codex_cli_rs' }, redirect: 'manual', signal: AbortSignal.timeout(20000) });
+        let response = await fetchUsage(record);
+        if (response.status === 401) {
+            const error = await responseError(response);
+            if (!retryableAuthCodes.has(error.code)) throw error;
+            record = await credentials.get(file, { force: true, failedToken: record.tokens.access_token });
+            response = await fetchUsage(record);
+        }
+        if (!response.ok) throw await responseError(response);
+        const data = await response.json();
+        const subscription = await querySubscription(record, fetchSubscription);
+        return { data, subscription, subscriptionExpiry: subscription.expiresAt || subscription.cancelsAt || null, fetchedAt: new Date().toISOString(),
+            tokenExpiresAt: claims(record.tokens.access_token).exp || null };
+    }
+
+    const server = http.createServer(async (request, response) => {
+        let name;
+        let active = false;
+        let controller;
+        let statisticsAccount;
+        let tokenUsage;
+        let finishRequest;
+        let pendingRequest;
+        let admittedConfiguration;
+        let admittedGeneration;
+        try {
+            if (!authenticated(request, initial.key)) {
+                sendJSON(response, 401, { error: { code: 'local_key_required', message: 'Local gateway authentication required.' } });
+                return;
+            }
+            const url = new URL(request.url, 'http://127.0.0.1');
+            const local = isLoopback(request.socket.remoteAddress);
+            if (!local && (!initial.lan_enabled || !isPrivateAddress(request.socket.remoteAddress))) {
+                throw new ProxyError('Only local network clients are allowed.', 'lan_access_denied', 403);
+            }
+            if (!local && (url.pathname.startsWith('/admin/') || url.pathname === '/health')) {
+                throw new ProxyError('Management is available only on this computer.', 'local_admin_required', 403);
+            }
+            const state = await readJSON(statePath);
+            if (url.search) throw new ProxyError('Query parameters are unsupported.', 'unsupported_route', 404);
+            if (url.pathname === '/health' && request.method === 'GET') {
+                const configuration = await inspectConfiguration(state, path.join(codexHome, 'config.toml'));
+                const verified = state.mode === 'key' && configuration.matches &&
+                    codexConnection?.fingerprint === configuration.fingerprint;
+                sendJSON(response, 200, { service: provider, selected_file: state.selected_file || null,
+                    enabled: state.enabled, mode: state.mode || (state.enabled ? 'key' : 'unconfigured'),
+                    proxy_running: true, codex_mode: state.mode || (state.enabled ? 'key' : 'unconfigured'),
+                    restore_available: Boolean(state.config_backup && state.config_path && state.installed_config_hash),
+                    codex_auth_file: state.codex_auth_file || (state.mode === 'auth_file' ? state.selected_file : null),
+                    codex_connection: { status: state.mode !== 'key' ? 'not_managed' :
+                        !configuration.matches ? 'config_mismatch' : verified ? 'verified' : 'pending',
+                        config_matches: configuration.matches, provider: configuration.provider || null,
+                        verified_at: verified ? codexConnection.at : null },
+                    port: server.address().port, lan_enabled: Boolean(initial.lan_enabled),
+                    lan_addresses: lanAddresses(), ...metrics });
+                return;
+            }
+            if (url.pathname === '/admin/accounts' && request.method === 'GET') {
+                const accounts = [];
+                for (const entry of await fs.readdir(state.auth_directory, { withFileTypes: true })) {
+                    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+                    const record = await readJSON(accountPath(state, entry.name)).catch(() => ({}));
+                    const stat = await fs.stat(accountPath(state, entry.name));
+                    accounts.push({ name: entry.name, modifiedAt: stat.mtime.toISOString(),
+                        tokenExpiresAt: claims(record.tokens?.access_token || '').exp || null,
+                        active: entry.name === state.selected_file });
+                }
+                sendJSON(response, 200, { accounts: accounts.sort((a, b) => a.name.localeCompare(b.name)),
+                    authDirectory: state.auth_directory });
+                return;
+            }
+            if (url.pathname === '/admin/statistics' && request.method === 'GET') {
+                const files = [];
+                for (const entry of await fs.readdir(state.auth_directory, { withFileTypes: true })) {
+                    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+                    const record = await readJSON(accountPath(state, entry.name)).catch(error => {
+                        if (error.code === 'ENOENT' || error instanceof SyntaxError) return {};
+                        throw error;
+                    });
+                    files.push(usageAccount(entry.name, record));
+                }
+                sendJSON(response, 200, { ...await statistics.periods(),
+                    files: files.sort((a, b) => a.name.localeCompare(b.name)), authDirectory: state.auth_directory });
+                return;
+            }
+            if (url.pathname.startsWith('/admin/') && request.method === 'POST') {
+                const input = await bodyJSON(request);
+                name = input.name;
+                if (url.pathname === '/admin/select') {
+                    await selectedRecord(name);
+                    // Validate account access before committing the global route.
+                    await usage(name);
+                    await locked(path.join(directory, 'state.mutex'), async () => {
+                        const latest = await readJSON(statePath);
+                        if (latest.mode === 'auth_file' && !latest.codex_auth_file) latest.codex_auth_file = latest.selected_file;
+                        latest.selected_file = name;
+                        await writeJSON(statePath, latest);
+                    });
+                    metrics.last_error = null;
+                    sendJSON(response, 200, { ok: true, selected_file: name });
+                    return;
+                }
+                if (url.pathname === '/admin/usage') { sendJSON(response, 200, await usage(name)); return; }
+                if (url.pathname === '/admin/renew') {
+                    await credentials.get(accountPath(state, name), { force: Boolean(input.force) });
+                    sendJSON(response, 200, { ok: true });
+                    return;
+                }
+                if (url.pathname === '/admin/configure') {
+                    await configure(directory, path.join(codexHome, 'config.toml'));
+                    configurationGeneration++;
+                    codexConnection = null;
+                    sendJSON(response, 200, { ok: true });
+                    return;
+                }
+                if (url.pathname === '/admin/auth-file') {
+                    name = input.name || state.codex_auth_file || state.selected_file;
+                    if (!name) throw new ProxyError('请先选择 Codex 直连账号。', 'no_account_selected', 400);
+                    // Switching a local authorization file is an explicit file operation,
+                    // not a renewal or entitlement check. Even expired credentials may be copied.
+                    const record = await readJSON(accountPath(state, name));
+                    await configureAuthFile(directory, record, path.join(codexHome, 'config.toml'), path.join(codexHome, 'auth.json'), name);
+                    metrics.last_error = null;
+                    sendJSON(response, 200, { ok: true });
+                    return;
+                }
+                if (url.pathname === '/admin/unconfigure') {
+                    await unconfigure(directory);
+                    sendJSON(response, 200, { ok: true });
+                    return;
+                }
+                if (url.pathname === '/admin/restore') {
+                    await restore(directory);
+                    sendJSON(response, 200, { ok: true });
+                    return;
+                }
+            }
+            const routes = { '/v1/responses': ['POST', 'responses'],
+                '/v1/responses/compact': ['POST', 'responses/compact'], '/v1/models': ['GET', 'models'] };
+            const route = routes[url.pathname];
+            if (paused) throw new ProxyError('代理正在更新网络设置，请稍后重试。', 'proxy_restarting', 503);
+            if (!route || route[0] !== request.method) throw new ProxyError('Unsupported gateway route.', 'unsupported_route', 404);
+            name = state.selected_file;
+            const file = accountPath(state, name);
+            let record = await credentials.get(file);
+            let body;
+            let stream = false;
+            let upstreamStream = false;
+            if (request.method === 'POST') {
+                const input = await bodyJSON(request);
+                if (input.previous_response_id) throw new ProxyError('Send full conversation input when using account switching.', 'unsupported_continuation', 400);
+                if (route[1] === 'responses') {
+                    if (input.stream != null && typeof input.stream !== 'boolean') {
+                        throw new ProxyError('stream 必须为 true 或 false。', 'invalid_stream', 400);
+                    }
+                    stream = input.stream === true;
+                    const legacy = upstream(record, route[1]).url.startsWith('https://chatgpt.com/backend-api/codex/');
+                    upstreamStream = legacy || stream;
+                    input.store = false;
+                    input.stream = upstreamStream;
+                    if (legacy) {
+                        input.instructions ??= '';
+                        if (typeof input.input === 'string') input.input = [{ role: 'user',
+                            content: [{ type: 'input_text', text: input.input }] }];
+                    }
+                }
+                body = JSON.stringify(input);
+            }
+            controller = new AbortController();
+            controllers.add(controller);
+            if (request.method === 'POST') statisticsAccount = usageAccount(name, record);
+            admittedGeneration = configurationGeneration;
+            if (state.mode === 'key') admittedConfiguration = await inspectConfiguration(state, path.join(codexHome, 'config.toml'));
+            response.once('close', () => { if (!response.writableEnded) controller.abort(); });
+            metrics.in_flight++;
+            active = true;
+            pendingRequest = new Promise(resolve => { finishRequest = resolve; });
+            pendingRequests.add(pendingRequest);
+            let result;
+            for (let attempt = 0; attempt < 2; attempt++) {
+                const target = upstream(record, route[1]);
+                if (!target.token) throw new ProxyError('Account has no usable token.', 'login_required', 401);
+                const headers = { Authorization: `Bearer ${target.token}`, 'Content-Type': 'application/json',
+                    Accept: upstreamStream ? 'text/event-stream' : 'application/json',
+                    originator: 'codex_cli_rs', 'User-Agent': 'codex_cli_rs/0.159.2' };
+                if (record.tokens?.account_id && !record.OPENAI_API_KEY) headers['ChatGPT-Account-Id'] = record.tokens.account_id;
+                for (const key of ['session_id', 'conversation_id', 'openai-beta', 'x-codex-turn-metadata']) {
+                    if (request.headers[key]) headers[key] = request.headers[key];
+                }
+                result = await fetchUpstream(target.url, { method: request.method, headers, body,
+                    redirect: 'manual', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(600000)]) });
+                if (result.status !== 401 || attempt !== 0 || record.OPENAI_API_KEY) break;
+                const error = await responseError(result);
+                if (!retryableAuthCodes.has(error.code)) throw error;
+                record = await credentials.get(file, { force: true, failedToken: record.tokens.access_token });
+            }
+            if (route[1] === 'models' && result.ok) {
+                let catalog = await result.json();
+                if (Array.isArray(catalog.models)) catalog = { object: 'list', data: catalog.models
+                    .filter(item => item.slug).map(item => ({ id: item.slug, object: 'model', owned_by: 'openai' })) };
+                sendJSON(response, result.status, catalog);
+                return;
+            }
+            const headers = { 'Cache-Control': 'no-store', 'Content-Type': result.headers.get('content-type') ||
+                (route[1] === 'responses' && result.ok ? 'text/event-stream' : 'application/json') };
+            for (const [key, value] of result.headers) {
+                if (['retry-after', 'x-request-id'].includes(key) || key.startsWith('x-ratelimit-')) headers[key] = value;
+            }
+            if (!result.ok) void report(new ProxyError('Upstream request failed.', `upstream_http_${result.status}`, result.status), name);
+            if (result.ok && route[1] === 'responses' && !stream &&
+                (headers['Content-Type'].includes('text/event-stream'))) {
+                const completed = await collectResponse(result.body, maxBody, value => {
+                    if (normalizedUsage(value?.usage)) tokenUsage ||= value.usage;
+                });
+                sendJSON(response, result.status, completed, headers);
+                metrics.last_account = name;
+                metrics.completed_requests++;
+                return;
+            }
+            if (result.ok && !headers['Content-Type'].includes('text/event-stream') && request.method === 'POST') {
+                const completed = await result.json();
+                tokenUsage = completed.usage;
+                sendJSON(response, result.status, completed, headers);
+                metrics.last_account = name;
+                metrics.completed_requests++;
+                return;
+            }
+            response.writeHead(result.status, headers);
+            response.flushHeaders();
+            if (result.body && result.ok && headers['Content-Type'].includes('text/event-stream')) {
+                let observer = eventObserver(event => {
+                    if (['response.completed', 'response.incomplete', 'response.failed'].includes(event.type) &&
+                        normalizedUsage(event.response?.usage)) tokenUsage ||= event.response.usage;
+                });
+                function observe(chunk, finish = false) {
+                    try { if (observer) { if (finish) observer.finish(); else observer.push(chunk); } }
+                    catch { observer = null; void report(new ProxyError('用量事件解析失败。', 'usage_parse_failed'), name); }
+                }
+                const tap = new Transform({ transform(chunk, _encoding, callback) { observe(chunk); callback(null, chunk); },
+                    flush(callback) { observe(null, true); callback(); } });
+                await pipeline(Readable.fromWeb(result.body), tap, response);
+            } else if (result.body) await pipeline(Readable.fromWeb(result.body), response);
+            else response.end();
+            metrics.last_account = name;
+            metrics.completed_requests++;
+        } catch (error) {
+            if (!controller?.signal.aborted) void report(error, name);
+            if (!response.headersSent && !response.destroyed) {
+                sendJSON(response, error.status || 502, { error: { code: error.code || 'upstream_unavailable',
+                    message: error instanceof ProxyError ? error.message : 'The upstream connection failed.' } });
+            } else response.destroy();
+        } finally {
+            // Only completed, authenticated, local Codex-client inference requests are evidence.
+            // curl, LAN clients and health/model-list checks must not mark local Codex as connected.
+            if (active && statisticsAccount && response.writableFinished && response.statusCode < 400 &&
+                isLoopback(request.socket.remoteAddress) &&
+                /codex/i.test(String(request.headers.originator || '') + ' ' + String(request.headers['user-agent'] || ''))) {
+                const current = await readJSON(statePath).catch(() => null);
+                if (current?.mode === 'key' && admittedConfiguration?.matches && admittedGeneration === configurationGeneration) {
+                    const configuration = await inspectConfiguration(current, path.join(codexHome, 'config.toml'));
+                    if (configuration.matches && configuration.fingerprint === admittedConfiguration.fingerprint)
+                        codexConnection = { fingerprint: configuration.fingerprint, at: new Date().toISOString() };
+                }
+            }
+            if (statisticsAccount && active) {
+                try { await statistics.record(statisticsAccount, tokenUsage); }
+                catch { await report(new ProxyError('Token 统计保存失败。', 'statistics_write_failed'), name); }
+            }
+            if (controller) controllers.delete(controller);
+            if (active) metrics.in_flight--;
+            if (finishRequest) { finishRequest(); pendingRequests.delete(pendingRequest); }
+        }
+    });
+    server.requestTimeout = 30000;
+    server.headersTimeout = 15000;
+    server.maxHeadersCount = 100;
+    await new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(initial.port, initial.lan_enabled ? '0.0.0.0' : '127.0.0.1', resolve);
+    });
+    return { server, metrics, notifyError: report, pause: () => {
+        if (metrics.in_flight) throw new ProxyError('请等待正在进行的请求结束后再修改网络设置。', 'requests_in_flight', 409);
+        paused = true;
+    }, close: async () => {
+        for (const controller of controllers) controller.abort();
+        server.closeAllConnections();
+        await new Promise(resolve => server.close(resolve));
+        await Promise.allSettled([...pendingRequests]);
+    } };
+}
+
+export async function localCall(directory, route, body) {
+    const state = await readJSON(path.join(directory, 'proxy.json'));
+    const response = await fetch(`http://127.0.0.1:${state.port}${route}`, {
+        method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${state.key}`, 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(60000) });
+    const result = await response.json();
+    if (!response.ok) throw new ProxyError(result.error?.message || 'Local proxy operation failed.', result.error?.code, response.status);
+    return result;
+}
+
+export async function start(directory = defaultDirectory, options) {
+    await initialize(directory);
+    const state = await readJSON(path.join(directory, 'proxy.json'));
+    if (!state.enabled) await syncActive(state.auth_directory, codexDirectory);
+    return createGateway(directory, options);
+}
+
+async function main() {
+    const args = process.argv.slice(2);
+    const command = args[0] || 'serve';
+    const option = name => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : undefined; };
+    const directory = option('--directory') || defaultDirectory;
+    const name = option('--account') && path.basename(option('--account'));
+    if (command === 'serve') {
+        const gateway = await start(directory);
+        console.log(JSON.stringify({ ready: true, port: gateway.server.address().port }));
+        for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, async () => { await gateway.close(); process.exit(0); });
+        return;
+    }
+    let result;
+    if (command === 'initialize') { await initialize(directory, name); result = { ok: true }; }
+    else if (command === 'status') result = await localCall(directory, '/health');
+    else if (command === 'select') result = await localCall(directory, '/admin/select', { name });
+    else if (command === 'renew') result = await localCall(directory, '/admin/renew', { name, force: args.includes('--force') });
+    else if (command === 'configure') result = await localCall(directory, '/admin/configure', {});
+    else if (command === 'restore') result = await localCall(directory, '/admin/restore', {});
+    else throw new ProxyError('Unknown gateway command.', 'invalid_command', 400);
+    console.log(JSON.stringify(result));
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+    main().catch(error => {
+        console.log(JSON.stringify({ error: error instanceof ProxyError ? error.message : 'Local proxy operation failed.', code: error.code || 'proxy_error' }));
+        process.exitCode = 1;
+    });
+}

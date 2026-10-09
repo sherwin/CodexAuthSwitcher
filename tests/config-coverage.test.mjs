@@ -1,0 +1,55 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import TOML from '@iarna/toml';
+import { configure, configureAuthFile, inspectConfiguration } from '../proxy/config.mjs';
+import { readJSON, writeJSON } from '../proxy/storage.mjs';
+
+test('key mode covers active and archived provider IDs without rewriting history, backs up auth, and restores custom definitions', async t => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-config-coverage-'));
+    t.after(() => fs.rm(directory, { recursive: true, force: true }));
+    const config = path.join(directory, 'config.toml');
+    const auth = path.join(directory, 'auth.json');
+    const statePath = path.join(directory, 'proxy.json');
+    await writeJSON(statePath, { port: 18888, key: 'test-key', selected_file: 'a.json' });
+    const original = '# preserve comment\nmodel = "gpt-6.1-sol"\n\n[model_providers.custom]\nname = "Previous"\nbase_url = "https://example.com/v1"\nwire_api = "responses"\n\n[projects."/test"]\ntrust_level = "trusted"\n';
+    await fs.writeFile(config, original);
+    const credentials = { auth_mode: 'chatgpt', tokens: { access_token: 'test-access', refresh_token: 'test-refresh' } };
+    await writeJSON(auth, credentials);
+    const histories = [];
+    for (const [folder, id] of [['sessions/2026/10/08', 'openai'], ['archived_sessions', 'old.provider']]) {
+        const file = path.join(directory, folder, 'rollout-test.jsonl');
+        await fs.mkdir(path.dirname(file), { recursive: true });
+        const content = JSON.stringify({ type: 'session_meta', payload: { model_provider: id } }) + '\n';
+        await fs.writeFile(file, content);
+        histories.push([file, content]);
+    }
+    await configure(directory, config);
+    const installed = await fs.readFile(config, 'utf8');
+    const parsed = TOML.parse(installed);
+    assert.equal(parsed.openai_base_url, 'http://127.0.0.1:18888/v1');
+    assert.equal(parsed.forced_login_method, 'api');
+    assert.equal(parsed.model_providers.custom.experimental_bearer_token, 'test-key');
+    assert.equal(parsed.model_providers['old.provider'].base_url, parsed.openai_base_url);
+    assert.equal(parsed.projects['/test'].trust_level, 'trusted');
+    assert.match(installed, /# preserve comment/);
+    const state = await readJSON(statePath);
+    assert.deepEqual(await readJSON(state.key_auth_backup), credentials);
+    assert.deepEqual(await readJSON(auth), { auth_mode: 'apikey', OPENAI_API_KEY: 'test-key' });
+    assert.equal((await inspectConfiguration(state, config)).matches, true);
+    await configure(directory, config);
+    assert.equal(await fs.readFile(config, 'utf8'), installed);
+    for (const [file, content] of histories) assert.equal(await fs.readFile(file, 'utf8'), content);
+    await writeJSON(auth, credentials);
+    assert.equal((await inspectConfiguration(state, config)).matches, false);
+    await configure(directory, config);
+    await configureAuthFile(directory, credentials, config, auth, 'b.json');
+    const direct = TOML.parse(await fs.readFile(config, 'utf8'));
+    assert.equal(direct.openai_base_url, undefined);
+    assert.equal(direct.model_providers.custom.base_url, 'https://example.com/v1');
+    assert.equal(direct.model_providers['old.provider'], undefined);
+    await configure(directory, config);
+    assert.equal(TOML.parse(await fs.readFile(config, 'utf8')).model_providers.custom.base_url, parsed.openai_base_url);
+});
