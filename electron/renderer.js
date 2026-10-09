@@ -1,6 +1,7 @@
 const api = window.authSwitcher;
 const accounts = document.querySelector('#accounts');
 const usage = new Map();
+const accountRefreshes = new Map();
 let items = [];
 let health;
 let busy = false;
@@ -219,7 +220,13 @@ function renderAccounts(target, direct) {
         const select = element('button', active ? '' : 'primary', active ? '当前账号' : '切换到此账号');
         select.disabled = active || busy;
         select.addEventListener('click', () => direct ? switchCodexAccount(item.name) : switchAccount(item.name));
-        header.append(label, select);
+        const refreshButton = element('button', '', accountRefreshes.has(item.name) ? '刷新中…' : '刷新');
+        refreshButton.disabled = accountRefreshes.has(item.name) || networkBusy;
+        refreshButton.title = `刷新 ${item.name} 的额度和状态`;
+        refreshButton.addEventListener('click', () => refreshAccount(item.name));
+        const actions = element('div', 'actions');
+        actions.append(refreshButton, select);
+        header.append(label, actions);
         const metrics = element('div', 'metrics');
         const credits = data?.rate_limit_reset_credits || data?.rateLimitResetCredits;
         const available = Array.isArray(credits?.credits) ? credits.credits.filter(item => item?.status === 'available') : [];
@@ -345,6 +352,26 @@ async function updateHealth() {
     }
 }
 
+function refreshAccount(name) {
+    if (accountRefreshes.has(name)) return accountRefreshes.get(name);
+    const directory = document.querySelector('#directory-path').textContent;
+    const pending = Promise.resolve().then(async () => {
+        try {
+            const result = await call('usage', { name });
+            if (document.querySelector('#directory-path').textContent === directory) usage.set(name, result);
+        } catch (error) {
+            if (document.querySelector('#directory-path').textContent === directory)
+                usage.set(name, { ...usage.get(name), error: error.message });
+        } finally {
+            accountRefreshes.delete(name);
+            render();
+        }
+    });
+    accountRefreshes.set(name, pending);
+    render();
+    return pending;
+}
+
 async function refresh() {
     document.querySelector('#refresh').disabled = true;
     try {
@@ -354,11 +381,7 @@ async function refresh() {
         document.querySelector('#directory-path').textContent = result.authDirectory;
         document.querySelector('#codex-directory-path').textContent = result.authDirectory;
         render();
-        await Promise.all(items.map(async item => {
-            try { usage.set(item.name, await call('usage', { name: item.name })); }
-            catch (error) { usage.set(item.name, { ...usage.get(item.name), error: error.message }); }
-            render();
-        }));
+        await Promise.all(items.map(item => refreshAccount(item.name)));
     } catch (error) { message(error.message, true); }
     finally { document.querySelector('#refresh').disabled = false; }
 }

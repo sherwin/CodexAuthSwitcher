@@ -66,6 +66,7 @@ test('proxy and Codex cards share status rendering and use independent switch ac
     const context = vm.createContext({ element, items: [{ name: 'a.json', modifiedAt: 'saved', tokenExpiresAt: 123 }],
         usage: new Map([['a.json', { data: { plan_type: 'plus', rate_limit: {}, rate_limit_reset_credits: {} }, error: 'expired' }]]),
         health: { selected_file: 'a.json', codex_mode: 'auth_file', codex_auth_file: 'b.json' }, busy: false,
+        accountRefreshes: new Map(), networkBusy: false, refreshAccount: name => actions.push(['refresh', name]),
         windowMetric: (...args) => element('metric', '', JSON.stringify(args)), metric: (...args) => element('metric', '', JSON.stringify(args)),
         date: value => String(value), expiryColor: () => '',
         switchAccount: name => actions.push(['proxy', name]), switchCodexAccount: name => actions.push(['codex', name]) });
@@ -76,14 +77,20 @@ test('proxy and Codex cards share status rendering and use independent switch ac
     context.renderAccounts(direct, true);
     assert.equal(JSON.stringify(proxy.children[0].children[1]), JSON.stringify(direct.children[0].children[1]));
     assert.equal(direct.children[0].children[2].text, 'expired');
-    assert.equal(proxy.children[0].children[0].children[1].disabled, true);
-    assert.equal(direct.children[0].children[0].children[1].disabled, false);
-    direct.children[0].children[0].children[1].click();
+    assert.equal(proxy.children[0].children[0].children[1].children[1].disabled, true);
+    assert.equal(direct.children[0].children[0].children[1].children[1].disabled, false);
+    direct.children[0].children[0].children[1].children[1].click();
     assert.deepEqual(actions, [['codex', 'a.json']]);
     context.health.selected_file = 'b.json';
     context.renderAccounts(proxy, false);
-    proxy.children[0].children[0].children[1].click();
+    proxy.children[0].children[0].children[1].children[1].click();
     assert.deepEqual(actions.at(-1), ['proxy', 'a.json']);
+    direct.children[0].children[0].children[1].children[0].click();
+    assert.deepEqual(actions.at(-1), ['refresh', 'a.json']);
+    context.accountRefreshes.set('a.json', Promise.resolve());
+    context.renderAccounts(direct, true);
+    assert.equal(direct.children[0].children[0].children[1].children[0].disabled, true);
+    assert.equal(direct.children[0].children[0].children[1].children[0].text, '刷新中…');
     context.usage.set('a.json', { data: { rate_limit_reset_credits: { available_count: 3, credits: [
         { status: 'available', expires_at: '2026-10-12T00:00:00Z' },
         { status: 'available', expires_at: '2026-10-10T00:00:00Z' },
@@ -99,4 +106,37 @@ test('proxy and Codex cards share status rendering and use independent switch ac
     const html = await readFile(new URL('../electron/index.html', import.meta.url), 'utf8');
     assert.ok(!html.includes('id="codex-account"'));
     assert.ok(!html.includes('恢复 Codex 原配置'));
+});
+
+test('single account refresh shares duplicate requests, preserves other accounts and clears busy state on failure', async () => {
+    const source = await readFile(new URL('../electron/renderer.js', import.meta.url), 'utf8');
+    const calls = [];
+    let finish;
+    let directory = '/accounts';
+    const usage = new Map([['b.json', { data: { unchanged: true } }]]);
+    const context = vm.createContext({ usage, accountRefreshes: new Map(), render: () => {},
+        document: { querySelector: () => ({ textContent: directory }) },
+        call: (action, input) => { calls.push([action, input.name]); return new Promise(resolve => { finish = resolve; }); } });
+    vm.runInContext(source.slice(source.indexOf('function refreshAccount('), source.indexOf('async function refresh()')), context);
+    const first = context.refreshAccount('a.json');
+    assert.equal(context.refreshAccount('a.json'), first);
+    await Promise.resolve();
+    assert.deepEqual(calls, [['usage', 'a.json']]);
+    finish({ data: { refreshed: true } });
+    await first;
+    assert.equal(usage.get('a.json').data.refreshed, true);
+    assert.equal(usage.get('b.json').data.unchanged, true);
+    assert.equal(context.accountRefreshes.size, 0);
+    context.call = async () => { throw new Error('query failed'); };
+    await context.refreshAccount('a.json');
+    assert.equal(usage.get('a.json').error, 'query failed');
+    assert.equal(usage.get('a.json').data.refreshed, true);
+    assert.equal(context.accountRefreshes.size, 0);
+    context.call = () => new Promise(resolve => { finish = resolve; });
+    const outdated = context.refreshAccount('a.json');
+    await Promise.resolve();
+    directory = '/new-accounts';
+    finish({ data: { outdated: true } });
+    await outdated;
+    assert.equal(usage.get('a.json').data.refreshed, true);
 });
