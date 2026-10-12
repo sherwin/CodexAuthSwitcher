@@ -14,6 +14,31 @@ test('token counts use K M B with two decimals, promote rounded boundaries and p
     }
 });
 
+test('statistics columns use immediate tooltips with exact counts and keyboard focus instead of native titles', async () => {
+    const source = await readFile(new URL('../electron/renderer.js', import.meta.url), 'utf8');
+    const context = vm.createContext({ element: (tag, className, textContent) => ({ tag, className, textContent,
+        attributes: {}, children: [], setAttribute(name, value) { this.attributes[name] = value; },
+        append(...children) { this.children.push(...children); } }) });
+    vm.runInContext(source.slice(source.indexOf('const number ='), source.indexOf('function renderStatistics(')), context);
+    for (const [label, count, caption] of [['12:00–12:59', 1234, '12'], ['2026-10-12', 0, '12']]) {
+        const column = context.statisticsColumn(label, count, 2000, caption);
+        assert.equal(column.title, undefined);
+        assert.equal(column.tabIndex, 0);
+        assert.match(column.attributes['aria-label'], new RegExp(label));
+        assert.equal(column.children[0].value, count);
+        assert.equal(column.children[0].max, 2000);
+        assert.equal(column.children[1].textContent, caption);
+        const tooltip = column.children[2];
+        assert.equal(tooltip.className, 'hour-tooltip');
+        assert.equal(tooltip.attributes['aria-hidden'], 'true');
+        assert.equal(tooltip.textContent, `${label}\n${context.tokenNumber(count)} Token\n精确用量 ${count.toLocaleString('zh-CN')}`);
+    }
+    const css = await readFile(new URL('../electron/style.css', import.meta.url), 'utf8');
+    assert.match(css, /\.hour-column:hover \.hour-tooltip,\.hour-column:focus-visible \.hour-tooltip\{display:block\}/);
+    assert.match(css, /\.hour-column:hover,\.hour-column:focus-visible\{[^}]*box-shadow:/);
+    assert.match(css, /\.hour-tooltip\{[^}]*pointer-events:none/);
+});
+
 test('reset cards show only the nearest valid expiry across ISO, seconds and milliseconds', async () => {
     const source = await readFile(new URL('../electron/renderer.js', import.meta.url), 'utf8');
     const context = vm.createContext({});

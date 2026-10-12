@@ -47,6 +47,19 @@ function tokenNumber(value) {
         (count >= item.divisor / 1000 && Number((count / item.divisor * 1000).toFixed(2)) >= 1000));
     return unit ? Number((count / unit.divisor).toFixed(2)).toLocaleString('en-US') + unit.suffix : number(count);
 }
+function statisticsColumn(label, count, max, caption) {
+    const description = `${label} · ${tokenNumber(count)} Token（${number(count)}）`;
+    const column = element('div', 'hour-column');
+    column.tabIndex = 0;
+    column.setAttribute('aria-label', description);
+    const meter = element('meter', 'hour-meter');
+    meter.min = 0; meter.max = max; meter.value = count;
+    meter.setAttribute('aria-label', description);
+    const tooltip = element('span', 'hour-tooltip', `${label}\n${tokenNumber(count)} Token\n精确用量 ${number(count)}`);
+    tooltip.setAttribute('aria-hidden', 'true');
+    column.append(meter, element('span', 'hour-label', caption), tooltip);
+    return column;
+}
 function renderStatistics() {
     if (!statisticsData) return;
     const period = statisticsPeriod;
@@ -92,13 +105,8 @@ function renderStatistics() {
     const max = Math.max(1, ...hours);
     chart.setAttribute('aria-label', hours.map((count, index) => `${data.buckets[index]} ${period === 'day' ? '点' : ''} ${number(count)} Token`).join('，'));
     for (let hour = 0; hour < hours.length; hour++) {
-        const column = element('div', 'hour-column');
-        column.title = `${period === 'day' ? hour + ':00–' + hour + ':59' : data.buckets[hour]} · ${tokenNumber(hours[hour])} Token（${number(hours[hour])}）`;
-        const meter = element('meter', 'hour-meter');
-        meter.min = 0; meter.max = max; meter.value = hours[hour];
-        meter.setAttribute('aria-label', column.title);
-        column.append(meter, element('span', 'hour-label', period === 'day' ? data.buckets[hour] : data.buckets[hour].slice(-2)));
-        chart.append(column);
+        chart.append(statisticsColumn(period === 'day' ? hour + ':00–' + hour + ':59' : data.buckets[hour],
+            hours[hour], max, period === 'day' ? data.buckets[hour] : data.buckets[hour].slice(-2)));
     }
     const table = document.querySelector('#statistics-rows');
     table.replaceChildren();
