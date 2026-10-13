@@ -85,7 +85,7 @@ test('proxy and Codex cards share status rendering and use independent switch ac
     const source = await readFile(new URL('../electron/renderer.js', import.meta.url), 'utf8');
     const renderer = source.slice(source.indexOf('function renderAccounts('), source.indexOf('async function updateHealth('));
     const element = (tag, className = '', text = '') => ({ tag, className, text, children: [],
-        append(...children) { this.children.push(...children); }, replaceChildren() { this.children = []; },
+        append(...children) { this.children.push(...children); }, replaceChildren(...children) { this.children = children; },
         addEventListener(_name, handler) { this.click = handler; } });
     const actions = [];
     const context = vm.createContext({ element, items: [{ name: 'a.json', modifiedAt: 'saved', tokenExpiresAt: 123 }],
@@ -131,6 +131,29 @@ test('proxy and Codex cards share status rendering and use independent switch ac
     const html = await readFile(new URL('../electron/index.html', import.meta.url), 'utf8');
     assert.ok(!html.includes('id="codex-account"'));
     assert.ok(!html.includes('恢复 Codex 原配置'));
+});
+
+test('account rerender restores the current scroll position synchronously without collapsing the list', async () => {
+    const source = await readFile(new URL('../electron/renderer.js', import.meta.url), 'utf8');
+    const scrolls = [];
+    const targets = [];
+    const accounts = {};
+    const direct = {};
+    const viewport = { scrollX: 12, scrollY: 850, scrollTo: options => {
+        scrolls.push(options); viewport.scrollY = options.top;
+    } };
+    const context = vm.createContext({ window: viewport, accounts, document: { querySelector: () => direct },
+        renderAccounts: (target, isDirect) => { targets.push([target, isDirect]); viewport.scrollY = 0; } });
+    vm.runInContext(source.slice(source.indexOf('function render()'), source.indexOf('function renderAccounts(')), context);
+    context.render();
+    assert.deepEqual(targets, [[accounts, false], [direct, true]]);
+    assert.equal(JSON.stringify(scrolls[0]), JSON.stringify({ left: 12, top: 850, behavior: 'instant' }));
+    viewport.scrollY = 1200;
+    context.render();
+    assert.equal(scrolls[1].top, 1200);
+    const renderer = source.slice(source.indexOf('function renderAccounts('), source.indexOf('function nearestResetCreditExpiry('));
+    assert.ok(!renderer.includes('target.replaceChildren();'));
+    assert.match(renderer, /target\.replaceChildren\(\.\.\.cards\)/);
 });
 
 test('single account refresh shares duplicate requests, preserves other accounts and clears busy state on failure', async () => {

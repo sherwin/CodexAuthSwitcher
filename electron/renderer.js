@@ -207,13 +207,15 @@ function windowMetric(title, window) {
 }
 
 function render() {
+    const { scrollX, scrollY } = window;
     renderAccounts(accounts, false);
     renderAccounts(document.querySelector('#codex-accounts'), true);
+    window.scrollTo({ left: scrollX, top: scrollY, behavior: 'instant' });
 }
 
 function renderAccounts(target, direct) {
-    target.replaceChildren();
-    if (!items.length) { target.append(element('p', 'muted', '此目录没有 JSON 授权文件，请选择授权目录。')); return; }
+    const cards = [];
+    if (!items.length) { target.replaceChildren(element('p', 'muted', '此目录没有 JSON 授权文件，请选择授权目录。')); return; }
     for (const item of items) {
         const cached = usage.get(item.name);
         const data = cached?.data;
@@ -254,8 +256,9 @@ function renderAccounts(target, direct) {
             '授权令牌到期 ' + date(cached?.tokenExpiresAt || item.tokenExpiresAt)),
             element('span', '', ' · 与会员到期无关'));
         card.append(tokenStatus);
-        target.append(card);
+        cards.push(card);
     }
+    target.replaceChildren(...cards);
 }
 
 function nearestResetCreditExpiry(available) {
