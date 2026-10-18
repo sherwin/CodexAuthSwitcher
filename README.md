@@ -3,6 +3,28 @@
 Electron desktop account picker with an independently runnable Node.js Responses proxy.
 The previous Swift application is retained as a legacy version; new development uses Electron and Node.js.
 
+## Platform compatibility
+
+The Electron desktop application and the standalone proxy support **macOS and
+Linux**. The authenticated web manager is an additional entry point and does not
+replace the desktop UI or preload. `npm start` still starts Electron;
+`node proxy/web.mjs` starts the web manager explicitly. Merely installing or
+launching the desktop app does not start the web listener or service management.
+
+Platform-specific paths retain the original behavior: on macOS the state lives
+under `~/Library/Application Support/CodexAuthSwitcher` and the default account
+directory is `~/Code/Codex-auth`; on Linux they are `~/.codex-auth-switcher` and
+`~/Codex-auth`. `CODEX_HOME` and the existing directory overrides still apply.
+
+Only the optional **Surface Feishu restart integration** is Linux/systemd-specific.
+On macOS and Windows it stays unavailable even if its environment flag was set;
+it never runs `systemctl`, reads Linux cgroups or applies Codex configuration.
+The desktop's native directory/clipboard/tray controls remain independent.
+
+`.github/workflows/compatibility.yml` runs the regression suite and native
+`npm run pack` on macOS and Ubuntu for pushes and pull requests. Packaging is
+unsigned CI validation, not production notarization or an interactive GUI test.
+
 ## Run
 
 Use Node.js 22.12+ for development and packaging. The standalone service supports Node.js 20.11+.
@@ -217,7 +239,7 @@ app menu and native filesystem dialogs are not browser controls.
 
 ### Surface Codex and Feishu runtime controls
 
-Set `AUTH_SWITCHER_MANAGE_CODEX=1` in the web service environment to expose the
+On Linux, set `AUTH_SWITCHER_MANAGE_CODEX=1` in the web service environment to expose the
 runtime controls in **Codex 配置**. This integration runs only the fixed command
 `/bin/systemctl restart cc-connect.service`; browser input cannot choose a unit,
 executable or shell command. Status includes the service PID and child-process

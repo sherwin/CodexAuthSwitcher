@@ -6,10 +6,11 @@ import { ProxyError } from './storage.mjs';
 const execute = promisify(execFile);
 const unit = 'cc-connect.service';
 export function createWebRuntime({ enabled = process.env.AUTH_SWITCHER_MANAGE_CODEX === '1',
-    run = execute, read = file => fs.readFile(file, 'utf8'), call } = {}) {
+    platform = process.platform, run = execute, read = file => fs.readFile(file, 'utf8'), call } = {}) {
+    const supported = platform === 'linux';
     let busy = false;
     async function status() {
-        if (!enabled) return { available: false, active: false };
+        if (!enabled || !supported) return { available: false, active: false };
         try {
             const { stdout } = await run('/bin/systemctl', ['show', unit, '-p', 'ActiveState',
                 '-p', 'SubState', '-p', 'MainPID', '-p', 'KillMode', '-p', 'ExecMainStartTimestamp'],
@@ -50,6 +51,7 @@ export function createWebRuntime({ enabled = process.env.AUTH_SWITCHER_MANAGE_CO
         get busy() { return busy; },
         status,
         async restart({ force = false, proxy = false } = {}) {
+            if (!supported) throw new ProxyError('此重启管理仅适用于 Linux systemd，不会修改当前平台的 Codex 配置。', 'runtime_unsupported', 403);
             if (!enabled) throw new ProxyError('此部署未启用 Codex 重启管理。', 'runtime_disabled', 403);
             if (busy) throw new ProxyError('Codex 正在重启，请稍后重试。', 'runtime_busy', 409);
             busy = true;

@@ -39,7 +39,7 @@ export async function webFixture({ port = 0 } = {}) {
     const operations = createWebOperations(directory, { call, gateway, startGateway,
         config: path.join(codexHome, 'config.toml') });
     let fixturePID = 101;
-    const runtime = createWebRuntime({ enabled: true, call,
+    const runtime = createWebRuntime({ enabled: true, platform: 'linux', call,
         run: async (_file, args) => {
             if (args[0] === 'restart') { fixturePID++; return { stdout: '' }; }
             return { stdout: `ActiveState=active\nMainPID=${fixturePID}\nKillMode=control-group\n` };

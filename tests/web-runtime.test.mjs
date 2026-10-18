@@ -5,7 +5,7 @@ import { createWebRuntime } from '../proxy/web-runtime.mjs';
 function fixture(options = {}) {
     let pid = 101;
     const commands = [], calls = [];
-    const runtime = createWebRuntime({ enabled: true,
+    const runtime = createWebRuntime({ enabled: true, platform: 'linux',
         run: async (file, args) => {
             commands.push([file, args]);
             if (args[0] === 'restart') { pid++; return { stdout: '' }; }
@@ -16,7 +16,7 @@ function fixture(options = {}) {
     return { runtime, commands, calls };
 }
 test('runtime is opt-in and restarts only the fixed cc-connect unit', async () => {
-    const disabled = createWebRuntime({ enabled: false, run: () => { throw Error('must not execute'); } });
+    const disabled = createWebRuntime({ enabled: false, platform: 'linux', run: () => { throw Error('must not execute'); } });
     assert.equal((await disabled.status()).available, false);
     await assert.rejects(disabled.restart(), /未启用/);
     const f = fixture();
@@ -24,6 +24,16 @@ test('runtime is opt-in and restarts only the fixed cc-connect unit', async () =
     assert.equal(result.runtime.pid, 102); assert.equal(result.restarted, true);
     assert.deepEqual(f.commands.filter(([, args]) => args[0] === 'restart'),
         [['/bin/systemctl', ['restart', 'cc-connect.service']]]);
+});
+test('macOS and Windows never execute systemd commands or configure Codex through Linux runtime controls', async () => {
+    for (const platform of ['darwin', 'win32']) {
+        const runtime = createWebRuntime({ enabled: true, platform,
+            run: () => { throw Error('must not execute'); },
+            read: () => { throw Error('must not read Linux cgroups'); },
+            call: () => { throw Error('must not configure Codex'); } });
+        assert.deepEqual(await runtime.status(), { available: false, active: false });
+        await assert.rejects(runtime.restart({ proxy: true, force: true }), error => error.code === 'runtime_unsupported');
+    }
 });
 test('proxy activation configures the local Codex before restart and requires a selected account', async () => {
     const f = fixture(); await f.runtime.restart({ proxy: true });
