@@ -2,6 +2,8 @@
   "name": "codex-auth-switcher-proxy",
   "version": "1.1.0",
   "private": true,
+  "description": "Cross-platform Codex account manager and local Responses proxy",
+  "author": "sherwin",
   "type": "module",
   "main": "electron/main.cjs",
   "engines": { "node": ">=20" },
@@ -9,7 +11,11 @@
     "start": "electron .",
     "proxy": "node proxy/server.mjs serve",
     "test": "node --test tests/*.test.mjs",
+    "test:desktop": "node scripts/run-desktop-smoke.cjs",
     "setup": "node proxy/server.mjs configure",
+    "build:icons": "node scripts/generate-icons.cjs",
+    "prepack": "npm run build:icons",
+    "predist": "npm run build:icons",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"
   },
@@ -26,8 +32,10 @@
     "appId": "com.sherwin.codex-auth-switcher.electron",
     "productName": "Codex Auth Switcher",
     "files": ["electron/**/*", "proxy/**/*", "package.json"],
-    "mac": { "target": "dir", "category": "public.app-category.developer-tools" },
-    "win": { "target": "nsis" },
-    "linux": { "target": "AppImage" }
+    "mac": { "target": "dir", "category": "public.app-category.developer-tools", "icon": "electron/assets/icon.icns" },
+    "win": { "target": "nsis", "icon": "electron/assets/icon.ico" },
+    "linux": { "target": "AppImage", "icon": "electron/assets/icon.png" },
+    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true, "createStartMenuShortcut": true, "shortcutName": "Codex Auth Switcher" }
   }
 }

@@ -1,6 +1,8 @@
-const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, dialog, clipboard, net } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, dialog, clipboard, net, session } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
+const { windowIcon, installDesktopShell } = require('./desktop-shell.cjs');
+if (process.platform === 'win32') app.setAppUserModelId('com.sherwin.codex-auth-switcher.electron');
 
 let window;
 let tray;
@@ -19,6 +21,7 @@ const gatewayOptions = { fetchSubscription: (url, options) => net.fetch(url, { .
 function createWindow() {
     window = new BrowserWindow({ width: 1060, height: 790, minWidth: 800, minHeight: 580,
         title: 'Codex Auth Switcher', backgroundColor: '#10151f',
+        icon: windowIcon(),
         webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true,
             nodeIntegration: false, sandbox: true } });
     window.loadFile(path.join(__dirname, 'index.html'));
@@ -31,6 +34,10 @@ else {
     app.on('second-instance', () => { window?.show(); window?.focus(); });
     app.whenReady().then(async () => {
         service = await import('../proxy/server.mjs');
+        if (process.platform === 'win32' && !(process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY)) {
+            const { systemProxyFetch } = await import('../proxy/system-proxy.mjs');
+            gatewayOptions.fetchUpstream = systemProxyFetch(url => session.defaultSession.resolveProxy(url));
+        }
         const storage = await import('../proxy/storage.mjs');
         directory = storage.defaultDirectory;
         await storage.initialize(directory);
@@ -118,21 +125,7 @@ else {
             return true;
         });
         createWindow();
-        const icon = nativeImage.createFromDataURL('data:image/svg+xml;base64,' + Buffer.from(
-            '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><circle cx="11" cy="11" r="8" fill="none" stroke="black" stroke-width="2"/><path d="M7 11h8M11 7l4 4-4 4" fill="none" stroke="black" stroke-width="2"/></svg>').toString('base64'));
-        icon.setTemplateImage(true);
-        tray = new Tray(icon);
-        tray.setToolTip('Codex Auth Switcher — local proxy');
-        tray.setContextMenu(Menu.buildFromTemplate([
-            { label: 'Show Auth Switcher', click: () => window.show() },
-            { label: 'Quit Proxy and App', click: () => app.quit() }
-        ]));
-        tray.on('click', () => window.show());
-        Menu.setApplicationMenu(Menu.buildFromTemplate([
-            { label: 'Auth Switcher', submenu: [{ label: 'Show Window', click: () => window.show() },
-                { label: 'Quit', accelerator: 'CmdOrCtrl+Q', click: () => app.quit() }] },
-            { role: 'editMenu' }, { role: 'windowMenu' }
-        ]));
+        tray = installDesktopShell({ app, window, Menu, Tray, nativeImage });
     }).catch(async () => {
         await dialog.showMessageBox({ type: 'error', message: 'Unable to initialize Auth Switcher',
             detail: 'Create your authorization backup directory, then reopen the app.' });
