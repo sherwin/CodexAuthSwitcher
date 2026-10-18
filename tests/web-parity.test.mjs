@@ -1,0 +1,57 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import { webFixture } from './helpers/web-fixture.mjs';
+import { readJSON } from '../proxy/storage.mjs';
+
+test('web uses the original renderer and API logic for accounts, modes, statistics, directory and network', async t => {
+    const f = await webFixture(); t.after(() => f.close());
+    const json = async (route, body) => {
+        const response = await f.request(route, body), data = await response.json();
+        assert.equal(response.status, 200, JSON.stringify(data)); return data;
+    };
+    const page = await f.request('/');
+    const html = await page.text();
+    assert.match(html, /web-bridge.js/); assert.match(html, /connect-src 'self'/);
+    assert.match(page.headers.get('content-security-policy'), /script-src 'self'/);
+    assert.equal(await (await f.request('/renderer.js')).text(), await fs.readFile(new URL('../electron/renderer.js', import.meta.url), 'utf8'));
+    for (const url of ['/style.css', '/web-bridge.js', '/web.css']) assert.equal((await f.request(url)).status, 200);
+    for (const url of ['/proxy.json', '/preload.cjs', '/main.cjs', '/web-auth.mjs', '/%2e%2e/package.json']) assert.equal((await f.request(url)).status, 404);
+    assert.equal((await json('/api/accounts')).accounts.length, 2);
+    assert.equal((await json('/api/usage', { name: 'alpha.json' })).data.plan_type, 'plus');
+    const before = await fs.readFile(path.join(f.codexHome, 'auth.json'), 'utf8');
+    await json('/api/select', { name: 'beta.json' });
+    assert.equal((await json('/api/status')).selected_file, 'beta.json');
+    assert.equal(await fs.readFile(path.join(f.codexHome, 'auth.json'), 'utf8'), before);
+    await json('/api/configure', {});
+    assert.equal((await json('/api/status')).codex_mode, 'key');
+    await json('/api/auth-file', { name: 'alpha.json' });
+    let health = await json('/api/status');
+    assert.equal(health.codex_mode, 'auth_file'); assert.equal(health.selected_file, 'beta.json');
+    assert.deepEqual((await readJSON(path.join(f.codexHome, 'auth.json'))).tokens,
+        (await readJSON(path.join(f.authDirectory, 'alpha.json'))).tokens);
+    const configBefore = await fs.readFile(path.join(f.codexHome, 'config.toml'), 'utf8');
+    await json('/api/unconfigure', {});
+    assert.equal((await json('/api/status')).codex_mode, 'unconfigured');
+    assert.equal(await fs.readFile(path.join(f.codexHome, 'config.toml'), 'utf8'), configBefore);
+    const statistics = await json('/api/statistics');
+    assert.ok(statistics.periods.day); assert.ok(statistics.periods.week); assert.ok(statistics.periods.month);
+    assert.equal(statistics.files.length, 2);
+    const preview = await json('/api/curl', { action: 'preview', target: '127.0.0.1' });
+    assert.match(preview.command, /<LOCAL_PROXY_KEY>/); assert.ok(!preview.command.includes('fixture-proxy-key'));
+    assert.match((await json('/api/curl', { action: 'copy', target: '127.0.0.1', stream: true })).command, /fixture-proxy-key/);
+    assert.equal((await f.request('/api/curl', { action: 'copy', target: 'evil.test' })).status, 400);
+    await json('/api/network', { port: health.port, lan_enabled: false });
+    assert.equal((await json('/api/status')).port, health.port);
+    const listed = await json('/api/directories?path=' + encodeURIComponent(f.directory));
+    assert.ok(listed.directories.some(entry => entry.name === 'accounts'));
+    assert.equal((await f.request('/api/directory', { path: 'relative/path' })).status, 400);
+    const next = path.join(f.directory, 'empty'); await fs.mkdir(next);
+    await json('/api/directory', { path: next });
+    assert.equal((await json('/api/accounts')).authDirectory, await fs.realpath(next));
+    assert.equal((await json('/api/accounts')).accounts.length, 0);
+    assert.equal((await readJSON(path.join(f.directory, 'proxy.json'))).selected_file, undefined);
+    await json('/api/directory', { path: f.authDirectory });
+    assert.equal((await json('/api/accounts')).accounts.length, 2);
+});

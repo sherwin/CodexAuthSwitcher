@@ -172,7 +172,9 @@ changes the web port. Existing `AUTH_SWITCHER_HOME`, `AUTH_SWITCHER_AUTH_DIR`,
 
 The web UI supports listing/importing ChatGPT credential files, querying usage,
 selecting the proxy exit and applying Key or authorization-file mode. It never
-returns credentials or the proxy key. The original management endpoints remain
+returns account credentials. The explicit curl-copy action returns the local proxy
+key to the authenticated browser so it can write the complete command to the
+clipboard; previews remain masked. The original management endpoints remain
 loopback-only. The web layer rejects public peers, unapproved hosts, cross-origin
 requests, unguarded writes and unknown routes. Uploads are limited to 1 MiB and
 existing account filenames are not overwritten. Only use trusted LANs: HTTP is
@@ -182,3 +184,34 @@ On Surface, `/etc/systemd/system/codex-auth-switcher.service` runs the web proce
 with `Restart=on-failure`, an explicit proxy and the private authorization directory
 `/root/Codex-auth`. It is enabled at boot. Check with
 `/bin/systemctl status codex-auth-switcher` and use the journal for logs.
+
+### Original desktop functionality in a browser
+
+The authenticated root page serves `electron/index.html`, `electron/style.css`
+and the **unchanged** `electron/renderer.js`. `proxy/web-bridge.js` supplies the
+same `authSwitcher` interface as Electron's preload, using authenticated HTTP
+requests. There is no separate account-card or statistics implementation.
+The desktop application's files and behavior remain unchanged.
+
+Both frontends use the existing gateway handlers for account listing, quota and
+membership queries, validated proxy-exit switching, Key configuration, direct
+authorization-file switching, empty mode and daily/weekly/monthly statistics.
+Proxy-exit switching and Codex authorization remain independent, including live
+requests. Empty mode preserves existing Codex files, as on the desktop.
+
+Network settings use the existing `changeNetwork` implementation, including
+in-flight request guards, port-conflict rollback and managed Codex URL updates.
+The manager on 18889 stays available when the proxy port changes. The directory
+picker browses folders **on the server**, pauses/restarts the owned gateway,
+clears the proxy selection and rolls back state if startup fails. It does not
+rewrite the existing Codex authorization file. A separate import button uploads
+JSON files from the browser's computer into the selected server directory.
+
+Curl preview/copy uses the original `curlCommand` and `shareHost` logic. HTTP LAN
+pages fall back to browser copy support when the secure Clipboard API is absent.
+Closing a browser tab leaves the systemd-managed gateway running. OS-only tray,
+app menu and native filesystem dialogs are not browser controls.
+
+Validate with `npm test`. `tests/web-parity.test.mjs` exercises these operations
+against a real isolated gateway with temporary Codex files and mocked upstream
+responses, without touching the user's credentials or consuming account quota.

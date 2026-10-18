@@ -4,15 +4,17 @@ import { promises as fs } from 'node:fs';
 import { createWebAuth } from './web-auth.mjs';
 import { fileURLToPath } from 'node:url';
 import { start, localCall } from './server.mjs';
-import { defaultDirectory, readJSON, writeJSON, accountPath } from './storage.mjs';
+import { defaultDirectory, readJSON, writeJSON, accountPath, ProxyError } from './storage.mjs';
 import { isLoopback, isPrivateAddress } from './network.mjs';
+import { desktopHTML, webAsset } from './web-assets.mjs';
+import { createWebOperations } from './web-operations.mjs';
 
-const htmlFile = new URL('./web.html', import.meta.url);
 const loginFile = new URL('./web-login.html', import.meta.url);
 const routes = new Map([
     ['GET /api/accounts', '/admin/accounts'], ['GET /api/status', '/health'],
     ['POST /api/usage', '/admin/usage'], ['POST /api/select', '/admin/select'],
     ['POST /api/auth-file', '/admin/auth-file'], ['POST /api/configure', '/admin/configure'],
+    ['GET /api/statistics', '/admin/statistics'], ['POST /api/unconfigure', '/admin/unconfigure'],
 ]);
 async function body(req) {
     const parts = []; let size = 0;
@@ -24,7 +26,7 @@ async function body(req) {
     return JSON.parse(Buffer.concat(parts).toString());
 }
 export async function createWeb({ directory = defaultDirectory, password, host = '0.0.0.0', port = 18889,
-    call = (route, data) => localCall(directory, route, data) } = {}) {
+    call = (route, data) => localCall(directory, route, data), operations = createWebOperations(directory, { call }) } = {}) {
     if (!password || password.length < 10) throw new Error('Web password must have at least 10 characters');
     const auth = createWebAuth(password);
     const server = http.createServer(async (req, res) => {
@@ -35,7 +37,7 @@ export async function createWeb({ directory = defaultDirectory, password, host =
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.setHeader('X-Frame-Options', 'DENY');
         res.setHeader('Referrer-Policy', 'no-referrer');
-        res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'");
+        res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'");
         if (!isLoopback(req.socket.remoteAddress) && !isPrivateAddress(req.socket.remoteAddress)) return send(403, { error: 'LAN only' });
         if (!/^localhost(?::\d+)?$|^127\.0\.0\.1(?::\d+)?$/.test(req.headers.host || '') &&
             !isPrivateAddress((req.headers.host || '').split(':')[0])) return send(403, { error: 'Invalid host' });
@@ -53,12 +55,25 @@ export async function createWeb({ directory = defaultDirectory, password, host =
             const authenticated = auth.authenticated(req);
             if (req.method === 'GET' && req.url === '/') {
                 res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-                res.end(await fs.readFile(authenticated ? htmlFile : loginFile)); return;
+                res.end(authenticated ? await desktopHTML() : await fs.readFile(loginFile)); return;
             }
             if (!authenticated) return send(401, { error: 'Login required' });
+            if (req.method === 'GET') {
+                const asset = await webAsset(req.url);
+                if (asset) {
+                    res.writeHead(200, { 'Content-Type': asset.type, 'Cache-Control': 'no-store' });
+                    res.end(asset.content); return;
+                }
+            }
             if (req.method === 'POST' && req.url === '/api/logout') {
                 res.setHeader('Set-Cookie', auth.logoutCookie()); return send(200, { ok: true });
             }
+            if (operations.busy) return send(409, { error: '服务设置正在更新，请稍后重试。' });
+            if (req.method === 'GET' && req.url.startsWith('/api/directories?'))
+                return send(200, await operations.directories(new URL(req.url, 'http://localhost').searchParams.get('path')));
+            const special = { '/api/network': 'network', '/api/directory': 'directory', '/api/curl': 'curl' };
+            if (req.method === 'POST' && Object.hasOwn(special, req.url))
+                return send(200, await operations[special[req.url]](await body(req)));
             if (req.method === 'POST' && req.url === '/api/import') {
                 const data = await body(req);
                 const record = typeof data.auth === 'string' ? JSON.parse(data.auth) : data.auth;
@@ -75,7 +90,7 @@ export async function createWeb({ directory = defaultDirectory, password, host =
             const data = req.method === 'POST' ? await body(req) : undefined;
             send(200, await call(route, data));
         } catch (error) {
-            send(error.status || 400, { error: error.code || 'operation_failed' });
+            send(error.status || 400, { error: error instanceof ProxyError ? error.message : error.code || 'operation_failed' });
         }
     });
     server.requestTimeout = 65000; server.headersTimeout = 10000;
@@ -85,9 +100,11 @@ export async function createWeb({ directory = defaultDirectory, password, host =
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
     const password = (await fs.readFile(process.env.AUTH_SWITCHER_WEB_PASSWORD_FILE || path.join(defaultDirectory, 'web-password'), 'utf8')).trim();
     const gateway = await start();
-    const web = await createWeb({ password, port: Number(process.env.AUTH_SWITCHER_WEB_PORT || 18889) });
+    const operations = createWebOperations(defaultDirectory, { gateway,
+        call: route => localCall(defaultDirectory, route) });
+    const web = await createWeb({ password, operations, port: Number(process.env.AUTH_SWITCHER_WEB_PORT || 18889) });
     console.log('Codex Auth Switcher web ready on port ' + web.address().port);
     for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, async () => {
-        web.closeAllConnections(); web.close(); await gateway.close(); process.exit(0);
+        web.closeAllConnections(); web.close(); await operations.close(); process.exit(0);
     });
 }
