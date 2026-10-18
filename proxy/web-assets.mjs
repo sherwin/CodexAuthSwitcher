@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 const desktopRoot = new URL('../electron/', import.meta.url);
 const assets = new Map([
     ['/style.css', [new URL('style.css', desktopRoot), 'text/css']],
+    ['/login.css', [new URL('./web-login.css', import.meta.url), 'text/css']],
     ['/renderer.js', [new URL('renderer.js', desktopRoot), 'text/javascript']],
     ['/web-bridge.js', [new URL('./web-bridge.js', import.meta.url), 'text/javascript']],
     ['/web-runtime-ui.js', [new URL('./web-runtime-ui.js', import.meta.url), 'text/javascript']],
@@ -14,7 +15,8 @@ export async function desktopHTML() {
         .replace('</head>', '  <link rel="stylesheet" href="web.css">\n</head>')
         .replace('<script src="renderer.js">', '<script src="web-bridge.js"></script>\n  <script src="web-runtime-ui.js"></script>\n  <script src="renderer.js">');
 }
-export async function webAsset(url) {
+export async function webAsset(url, { publicOnly = false } = {}) {
+    if (publicOnly && !['/style.css', '/login.css'].includes(url)) return;
     const asset = assets.get(url);
     return asset && { content: await fs.readFile(asset[0]), type: asset[1] + '; charset=utf-8' };
 }

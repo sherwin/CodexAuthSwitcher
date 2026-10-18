@@ -163,7 +163,10 @@ It starts the existing loopback-only proxy on 18888 in the same process. Set
 `AUTH_SWITCHER_WEB_PASSWORD_FILE` to a private file containing a random password
 (at least 10 characters; a long random password is recommended). Browser username is `admin`. The root page shows a login
 form without requiring a native HTTP Basic dialog (which embedded browsers may
-not support). Login uses an HttpOnly, SameSite=Strict cookie lasting eight hours;
+not support). The login page shares the original desktop stylesheet, with a
+small responsive login layout. Only the shared stylesheet and login CSS are
+public; application scripts and all management data still require login.
+Login uses an HttpOnly, SameSite=Strict cookie lasting eight hours;
 service restarts invalidate sessions. Five failed login attempts per address
 block further attempts until the one-minute window expires. API requests can
 also use HTTP Basic credentials. `AUTH_SWITCHER_WEB_PORT`

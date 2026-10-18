@@ -59,14 +59,14 @@ export async function createWeb({ directory = defaultDirectory, password, host =
                 res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
                 res.end(authenticated ? await desktopHTML() : await fs.readFile(loginFile)); return;
             }
-            if (!authenticated) return send(401, { error: 'Login required' });
             if (req.method === 'GET') {
-                const asset = await webAsset(req.url);
+                const asset = await webAsset(req.url, { publicOnly: !authenticated });
                 if (asset) {
                     res.writeHead(200, { 'Content-Type': asset.type, 'Cache-Control': 'no-store' });
                     res.end(asset.content); return;
                 }
             }
+            if (!authenticated) return send(401, { error: 'Login required' });
             if (req.method === 'POST' && req.url === '/api/logout') {
                 res.setHeader('Set-Cookie', auth.logoutCookie()); return send(200, { ok: true });
             }

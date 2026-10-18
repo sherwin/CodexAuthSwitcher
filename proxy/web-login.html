@@ -1,11 +1,23 @@
 <!doctype html>
 <html lang="zh-CN">
+<head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>登录 · Surface Codex 账号</title>
-<style>
-*{box-sizing:border-box}body{margin:0;background:#f3f5f7;color:#182635;font:16px system-ui}main{max-width:440px;margin:10vh auto;padding:24px}form{background:#fff;border:1px solid #dce3e9;border-radius:14px;padding:24px}h1{font-size:25px}p{line-height:1.6;color:#536472}label{display:block;margin:18px 0}input,button{width:100%;font:inherit;padding:12px;border:1px solid #bccbd4;border-radius:8px}input{margin-top:8px}button{background:#176b57;color:white;border:0;cursor:pointer}button:disabled{opacity:.6}#message{min-height:26px;color:#a22}
-</style>
-<main><form id="login"><h1>Surface · Codex 账号</h1><p>输入管理账号登录，授权文件保存在 Surface。</p><label>用户名<input name="username" autocomplete="username" value="admin" required></label><label>密码<input name="password" type="password" autocomplete="current-password" required></label><button>登录</button><p id="message" role="status"></p></form></main>
+<title>登录 · Codex Auth Switcher</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="login.css">
+</head>
+<body class="web-login">
+<main class="login-shell">
+    <header><div><p class="eyebrow">SURFACE / LAN ACCOUNT GATEWAY</p><h1>Codex Auth Switcher</h1><p class="muted">管理 Surface 上的 Codex 账号与本地代理。</p></div></header>
+    <form id="login" class="card" aria-labelledby="login-title">
+        <h2 id="login-title">登录</h2>
+        <p class="muted login-description">使用管理账号继续。</p>
+        <label>用户名<input name="username" autocomplete="username" value="admin" required></label>
+        <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
+        <button class="primary" type="submit">登录</button>
+        <p id="message" class="danger" role="status" aria-live="polite"></p>
+    </form>
+</main>
 <script>
 document.getElementById('login').onsubmit=async event=>{
     event.preventDefault();const form=event.target,button=form.querySelector('button'),message=document.getElementById('message');
@@ -15,4 +27,4 @@ document.getElementById('login').onsubmit=async event=>{
         location.replace('/');
     }catch(error){message.textContent=error.message}finally{button.disabled=false}
 };
-</script></html>
+</script></body></html>

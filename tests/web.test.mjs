@@ -17,6 +17,8 @@ test('LAN web requires login and same-origin guarded mutations, exposes only app
  assert.equal(loginPage.status,200);
  assert.equal(loginPage.headers.get('www-authenticate'),null);
  assert.match(await loginPage.text(),/autocomplete="current-password"/);
+ for (const file of ['/style.css','/login.css']) assert.equal((await fetch(base+file)).status,200);
+ assert.equal((await fetch(base+'/renderer.js')).status,401);
  assert.equal((await fetch(base+'/api/accounts')).status,401);
  assert.equal((await fetch(base+'/',{headers})).status,200);
  assert.equal((await fetch(base+'/api/accounts',{headers})).status,200);
