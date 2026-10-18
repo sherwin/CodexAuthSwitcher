@@ -161,7 +161,7 @@ Production signing/notarization must be configured before distributing outside t
 Run `node proxy/web.mjs` for a password-protected account manager on port 18889.
 It starts the existing loopback-only proxy on 18888 in the same process. Set
 `AUTH_SWITCHER_WEB_PASSWORD_FILE` to a private file containing a random password
-(at least 16 characters). Browser username is `admin`. The root page shows a login
+(at least 10 characters; a long random password is recommended). Browser username is `admin`. The root page shows a login
 form without requiring a native HTTP Basic dialog (which embedded browsers may
 not support). Login uses an HttpOnly, SameSite=Strict cookie lasting eight hours;
 service restarts invalidate sessions. Five failed login attempts per address

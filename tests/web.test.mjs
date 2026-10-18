@@ -33,11 +33,13 @@ test('LAN web requires login and same-origin guarded mutations, exposes only app
 });
 
 test('form login authenticates cookies and rejects forgery, cross-origin login and guessing', async t => {
- const server=await createWeb({password:'test-password-long-enough',host:'127.0.0.1',port:0,call:async()=>({ok:true})});
+ await assert.rejects(createWeb({password:'short'}),/at least 10 characters/);
+ const password='Test.12345';
+ const server=await createWeb({password,host:'127.0.0.1',port:0,call:async()=>({ok:true})});
  t.after(async()=>{server.closeAllConnections();await new Promise(r=>server.close(r))});
  const base='http://127.0.0.1:'+server.address().port;
  const headers={'Content-Type':'application/json','X-Switcher-Web':'1',Origin:base};
- const body=JSON.stringify({username:'admin',password:'test-password-long-enough'});
+ const body=JSON.stringify({username:'admin',password});
  const login=(extra={})=>fetch(base+'/api/login',{method:'POST',headers:{...headers,...extra},body});
  assert.equal((await login({Origin:'http://evil.test'})).status,403);
  assert.equal((await login({'X-Switcher-Web':''})).status,403);

@@ -25,7 +25,7 @@ async function body(req) {
 }
 export async function createWeb({ directory = defaultDirectory, password, host = '0.0.0.0', port = 18889,
     call = (route, data) => localCall(directory, route, data) } = {}) {
-    if (!password || password.length < 16) throw new Error('Web password must have at least 16 characters');
+    if (!password || password.length < 10) throw new Error('Web password must have at least 10 characters');
     const auth = createWebAuth(password);
     const server = http.createServer(async (req, res) => {
         const send = (status, data) => {
