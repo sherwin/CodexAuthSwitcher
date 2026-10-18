@@ -5,6 +5,7 @@ import { createGateway, localCall } from '../../proxy/server.mjs';
 import { readJSON, writeJSON } from '../../proxy/storage.mjs';
 import { createWeb } from '../../proxy/web.mjs';
 import { createWebOperations } from '../../proxy/web-operations.mjs';
+import { createWebRuntime } from '../../proxy/web-runtime.mjs';
 
 // All credentials, configuration changes and upstream responses are test fixtures.
 export async function webFixture({ port = 0 } = {}) {
@@ -37,7 +38,13 @@ export async function webFixture({ port = 0 } = {}) {
     const call = (route, data) => localCall(directory, route, data);
     const operations = createWebOperations(directory, { call, gateway, startGateway,
         config: path.join(codexHome, 'config.toml') });
-    const server = await createWeb({ directory, password: 'fixture-only-password', host: '127.0.0.1', port, call, operations });
+    let fixturePID = 101;
+    const runtime = createWebRuntime({ enabled: true, call,
+        run: async (_file, args) => {
+            if (args[0] === 'restart') { fixturePID++; return { stdout: '' }; }
+            return { stdout: `ActiveState=active\nMainPID=${fixturePID}\nKillMode=control-group\n` };
+        }, read: async () => String(fixturePID) });
+    const server = await createWeb({ directory, password: 'fixture-only-password', host: '127.0.0.1', port, call, operations, runtime });
     const base = 'http://127.0.0.1:' + server.address().port;
     const headers = { Authorization: 'Basic ' + Buffer.from('admin:fixture-only-password').toString('base64'), 'X-Switcher-Web': '1' };
     const request = (route, data) => fetch(base + route, { headers,

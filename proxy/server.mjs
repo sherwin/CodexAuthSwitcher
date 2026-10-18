@@ -136,6 +136,8 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
         let pendingRequest;
         let admittedConfiguration;
         let admittedGeneration;
+        let terminalCompleted = false;
+        let completionCounted = false;
         try {
             if (!authenticated(request, initial.key)) {
                 sendJSON(response, 401, { error: { code: 'local_key_required', message: 'Local gateway authentication required.' } });
@@ -342,6 +344,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             response.flushHeaders();
             if (result.body && result.ok && headers['Content-Type'].includes('text/event-stream')) {
                 let observer = eventObserver(event => {
+                    if (event.type === 'response.completed' && event.response?.status === 'completed') terminalCompleted = true;
                     if (['response.completed', 'response.incomplete', 'response.failed'].includes(event.type) &&
                         normalizedUsage(event.response?.usage)) tokenUsage ||= event.response.usage;
                 });
@@ -356,6 +359,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             else response.end();
             metrics.last_account = name;
             metrics.completed_requests++;
+            completionCounted = true;
         } catch (error) {
             if (!controller?.signal.aborted) void report(error, name);
             if (!response.headersSent && !response.destroyed) {
@@ -363,9 +367,15 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                     message: error instanceof ProxyError ? error.message : 'The upstream connection failed.' } });
             } else response.destroy();
         } finally {
+            // Codex can close immediately after response.completed, before upstream EOF.
+            // Count that completed inference, but never a stream canceled before its terminal event.
+            if (active && terminalCompleted && !completionCounted && response.statusCode < 400) {
+                metrics.last_account = name;
+                metrics.completed_requests++;
+            }
             // Only completed, authenticated, local Codex-client inference requests are evidence.
             // curl, LAN clients and health/model-list checks must not mark local Codex as connected.
-            if (active && statisticsAccount && response.writableFinished && response.statusCode < 400 &&
+            if (active && statisticsAccount && (response.writableFinished || terminalCompleted) && response.statusCode < 400 &&
                 isLoopback(request.socket.remoteAddress) &&
                 /codex/i.test(String(request.headers.originator || '') + ' ' + String(request.headers['user-agent'] || ''))) {
                 const current = await readJSON(statePath).catch(() => null);

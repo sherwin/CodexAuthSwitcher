@@ -215,6 +215,31 @@ test('connection verification requires local Codex inference, invalidates on con
     assert.ok(!health.includes('upstream-test-key'));
 });
 
+test('Codex closing after a completed SSE event verifies routing; early cancellation does not', async t => {
+    for (const terminal of [true, false]) await t.test(terminal ? 'after completion' : 'before completion', async t => {
+        const event = terminal ? { type: 'response.completed', response: { status: 'completed',
+            usage: { input_tokens: 1, output_tokens: 1 } } } : { type: 'response.created' };
+        const f = await gatewayFixture(t, async () => new Response(new ReadableStream({ start(controller) {
+            controller.enqueue(new TextEncoder().encode('data: ' + JSON.stringify(event) + '\n\n'));
+            // Keep the upstream open: Codex stops reading at the completed event, not EOF.
+        } }), { headers: { 'Content-Type': 'text/event-stream' } }));
+        await writeJSON(path.join(f.auth, 'a.json'), { OPENAI_API_KEY: 'upstream-test-key' });
+        await f.call('/admin/configure', {});
+        const response = await f.call('/v1/responses', { input: 'test', stream: true }, { 'User-Agent': 'codex_cli_rs/test' });
+        const reader = response.body.getReader(); await reader.read(); await reader.cancel();
+        let health;
+        for (let i = 0; i < 200; i++) {
+            health = await (await f.call('/health')).json();
+            if (!health.in_flight) break;
+            await new Promise(resolve => setTimeout(resolve, 5));
+        }
+        assert.equal(health.in_flight, 0);
+        assert.equal(health.codex_connection.status, terminal ? 'verified' : 'pending');
+        assert.equal(health.completed_requests, terminal ? 1 : 0);
+        if (terminal) assert.equal(health.last_account, 'a.json');
+    });
+});
+
 test('usage includes membership dates and preserves quotas when subscription lookup fails', async t => {
     let fail = false;
     const f = await gatewayFixture(t, async url => url.includes('/wham/usage') ?

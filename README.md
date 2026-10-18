@@ -212,6 +212,32 @@ pages fall back to browser copy support when the secure Clipboard API is absent.
 Closing a browser tab leaves the systemd-managed gateway running. OS-only tray,
 app menu and native filesystem dialogs are not browser controls.
 
+### Surface Codex and Feishu runtime controls
+
+Set `AUTH_SWITCHER_MANAGE_CODEX=1` in the web service environment to expose the
+runtime controls in **Codex 配置**. This integration runs only the fixed command
+`/bin/systemctl restart cc-connect.service`; browser input cannot choose a unit,
+executable or shell command. Status includes the service PID and child-process
+count. `KillMode=control-group` is required so restart releases the bridge's Codex
+subprocesses. Other independently launched Codex processes are not managed.
+
+**重启 Codex／飞书连接** restarts the bridge after an authorization-file or Key
+configuration change. **应用代理模式并重启** requires an already selected proxy
+exit, applies the original Key configuration to the server's Codex home, and
+then restarts the bridge. Both actions require authenticated, guarded POSTs.
+The page asks for explicit confirmation because current Feishu tasks may be
+interrupted. The API rejects active/unknown child processes unless `force: true`
+was explicitly supplied. Success requires an active service with a changed PID;
+configuration success followed by restart failure is reported separately.
+
+Once Key mode is active, Codex and Feishu use the local Responses gateway.
+Changing the proxy exit affects new requests without restarting the bridge;
+running requests retain their original account. Selecting a direct authorization
+file instead returns Codex to direct-file mode and requires a bridge restart.
+Local Codex verification also accepts a successful `response.completed` SSE
+event when the client closes before upstream EOF. Streams canceled before a
+completed event are not counted as completed or used as connection evidence.
+
 Validate with `npm test`. `tests/web-parity.test.mjs` exercises these operations
 against a real isolated gateway with temporary Codex files and mocked upstream
 responses, without touching the user's credentials or consuming account quota.

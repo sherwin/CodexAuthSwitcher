@@ -8,6 +8,7 @@ import { defaultDirectory, readJSON, writeJSON, accountPath, ProxyError } from '
 import { isLoopback, isPrivateAddress } from './network.mjs';
 import { desktopHTML, webAsset } from './web-assets.mjs';
 import { createWebOperations } from './web-operations.mjs';
+import { createWebRuntime } from './web-runtime.mjs';
 
 const loginFile = new URL('./web-login.html', import.meta.url);
 const routes = new Map([
@@ -26,7 +27,8 @@ async function body(req) {
     return JSON.parse(Buffer.concat(parts).toString());
 }
 export async function createWeb({ directory = defaultDirectory, password, host = '0.0.0.0', port = 18889,
-    call = (route, data) => localCall(directory, route, data), operations = createWebOperations(directory, { call }) } = {}) {
+    call = (route, data) => localCall(directory, route, data), operations = createWebOperations(directory, { call }),
+    runtime = createWebRuntime({ call }) } = {}) {
     if (!password || password.length < 10) throw new Error('Web password must have at least 10 characters');
     const auth = createWebAuth(password);
     const server = http.createServer(async (req, res) => {
@@ -69,6 +71,12 @@ export async function createWeb({ directory = defaultDirectory, password, host =
                 res.setHeader('Set-Cookie', auth.logoutCookie()); return send(200, { ok: true });
             }
             if (operations.busy) return send(409, { error: '服务设置正在更新，请稍后重试。' });
+            if (runtime.busy && req.method === 'POST') return send(409, { error: 'Codex 正在重启，请稍后重试。' });
+            if (req.method === 'GET' && req.url === '/api/runtime') return send(200, await runtime.status());
+            if (req.method === 'POST' && ['/api/runtime/restart', '/api/runtime/proxy'].includes(req.url)) {
+                const input = await body(req);
+                return send(200, await runtime.restart({ force: input.force === true, proxy: req.url === '/api/runtime/proxy' }));
+            }
             if (req.method === 'GET' && req.url.startsWith('/api/directories?'))
                 return send(200, await operations.directories(new URL(req.url, 'http://localhost').searchParams.get('path')));
             const special = { '/api/network': 'network', '/api/directory': 'directory', '/api/curl': 'curl' };

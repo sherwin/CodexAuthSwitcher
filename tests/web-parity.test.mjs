@@ -54,4 +54,11 @@ test('web uses the original renderer and API logic for accounts, modes, statisti
     assert.equal((await readJSON(path.join(f.directory, 'proxy.json'))).selected_file, undefined);
     await json('/api/directory', { path: f.authDirectory });
     assert.equal((await json('/api/accounts')).accounts.length, 2);
+    assert.equal((await json('/api/runtime')).pid, 101);
+    const restart = await json('/api/runtime/restart', {});
+    assert.equal(restart.runtime.pid, 102);
+    assert.equal((await f.request('/api/runtime/proxy', {})).status, 409);
+    await json('/api/select', { name: 'alpha.json' });
+    assert.equal((await json('/api/runtime/proxy', {})).runtime.pid, 103);
+    assert.equal((await json('/api/status')).codex_mode, 'key');
 });
