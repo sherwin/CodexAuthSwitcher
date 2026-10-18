@@ -155,3 +155,25 @@ npm run pack
 Electron Builder has targets for macOS, Windows (NSIS), and Linux (AppImage).
 Build release artifacts on the corresponding platform; only macOS has been locally exercised here.
 Production signing/notarization must be configured before distributing outside this computer.
+
+## LAN Web management (Linux)
+
+Run `node proxy/web.mjs` for a password-protected account manager on port 18889.
+It starts the existing loopback-only proxy on 18888 in the same process. Set
+`AUTH_SWITCHER_WEB_PASSWORD_FILE` to a private file containing a random password
+(at least 16 characters). Browser username is `admin`. `AUTH_SWITCHER_WEB_PORT`
+changes the web port. Existing `AUTH_SWITCHER_HOME`, `AUTH_SWITCHER_AUTH_DIR`,
+`CODEX_HOME` and `HTTPS_PROXY` also apply.
+
+The web UI supports listing/importing ChatGPT credential files, querying usage,
+selecting the proxy exit and applying Key or authorization-file mode. It never
+returns credentials or the proxy key. The original management endpoints remain
+loopback-only. The web layer rejects public peers, unapproved hosts, cross-origin
+requests, unguarded writes and unknown routes. Uploads are limited to 1 MiB and
+existing account filenames are not overwritten. Only use trusted LANs: HTTP is
+unencrypted. Do not expose this port through router forwarding.
+
+On Surface, `/etc/systemd/system/codex-auth-switcher.service` runs the web process
+with `Restart=on-failure`, an explicit proxy and the private authorization directory
+`/root/Codex-auth`. It is enabled at boot. Check with
+`/bin/systemctl status codex-auth-switcher` and use the journal for logs.
