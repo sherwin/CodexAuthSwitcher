@@ -13,7 +13,11 @@ test('LAN web requires login and same-origin guarded mutations, exposes only app
  t.after(async()=>{server.closeAllConnections();await new Promise(r=>server.close(r));await fs.rm(directory,{recursive:true,force:true})});
  const base='http://127.0.0.1:'+server.address().port;
  const headers={Authorization:'Basic '+Buffer.from('admin:test-password-long-enough').toString('base64')};
- assert.equal((await fetch(base+'/')).status,401);
+ const loginPage=await fetch(base+'/');
+ assert.equal(loginPage.status,200);
+ assert.equal(loginPage.headers.get('www-authenticate'),null);
+ assert.match(await loginPage.text(),/autocomplete="current-password"/);
+ assert.equal((await fetch(base+'/api/accounts')).status,401);
  assert.equal((await fetch(base+'/',{headers})).status,200);
  assert.equal((await fetch(base+'/api/accounts',{headers})).status,200);
  assert.equal(calls[0][0],'/admin/accounts');
@@ -26,4 +30,29 @@ test('LAN web requires login and same-origin guarded mutations, exposes only app
  assert.equal((await upload('test.json')).status,409);
  const rejected=await new Promise((resolve,reject)=>{http.get(base+'/api/status',{headers:{...headers,Host:'evil.test'}},r=>{r.resume();resolve(r.statusCode)}).on('error',reject)});
  assert.equal(rejected,403);
+});
+
+test('form login authenticates cookies and rejects forgery, cross-origin login and guessing', async t => {
+ const server=await createWeb({password:'test-password-long-enough',host:'127.0.0.1',port:0,call:async()=>({ok:true})});
+ t.after(async()=>{server.closeAllConnections();await new Promise(r=>server.close(r))});
+ const base='http://127.0.0.1:'+server.address().port;
+ const headers={'Content-Type':'application/json','X-Switcher-Web':'1',Origin:base};
+ const body=JSON.stringify({username:'admin',password:'test-password-long-enough'});
+ const login=(extra={})=>fetch(base+'/api/login',{method:'POST',headers:{...headers,...extra},body});
+ assert.equal((await login({Origin:'http://evil.test'})).status,403);
+ assert.equal((await login({'X-Switcher-Web':''})).status,403);
+ const response=await login(); assert.equal(response.status,200);
+ const setCookie=response.headers.get('set-cookie');
+ assert.match(setCookie,/HttpOnly; SameSite=Strict; Path=\/; Max-Age=28800/);
+ const Cookie=setCookie.split(';')[0];
+ assert.equal((await fetch(base+'/api/accounts',{headers:{Cookie}})).status,200);
+ assert.equal((await fetch(base+'/api/accounts',{headers:{Cookie:Cookie+'tampered'}})).status,401);
+ assert.equal((await fetch(base+'/api/auth-file',{method:'POST',headers:{Cookie},body:'{}'})).status,403);
+ const logout=await fetch(base+'/api/logout',{method:'POST',headers:{...headers,Cookie},body:'{}'});
+ assert.equal(logout.status,200); assert.match(logout.headers.get('set-cookie'),/Max-Age=0/);
+ const {createWebAuth}=await import('../proxy/web-auth.mjs');
+ const auth=createWebAuth('test-password-long-enough');
+ assert.equal(auth.authenticated({headers:{cookie:'switcher_session=1.0123456789abcdef0123456789abcdef.bad'}}),false);
+ for(let i=0;i<5;i++) assert.equal(auth.login('test','admin','wrong').status,401);
+ assert.equal(auth.login('test','admin','test-password-long-enough').status,429);
 });

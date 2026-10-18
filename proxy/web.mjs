@@ -1,22 +1,19 @@
 import http from 'node:http';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
-import { timingSafeEqual } from 'node:crypto';
+import { createWebAuth } from './web-auth.mjs';
 import { fileURLToPath } from 'node:url';
 import { start, localCall } from './server.mjs';
 import { defaultDirectory, readJSON, writeJSON, accountPath } from './storage.mjs';
 import { isLoopback, isPrivateAddress } from './network.mjs';
 
 const htmlFile = new URL('./web.html', import.meta.url);
+const loginFile = new URL('./web-login.html', import.meta.url);
 const routes = new Map([
     ['GET /api/accounts', '/admin/accounts'], ['GET /api/status', '/health'],
     ['POST /api/usage', '/admin/usage'], ['POST /api/select', '/admin/select'],
     ['POST /api/auth-file', '/admin/auth-file'], ['POST /api/configure', '/admin/configure'],
 ]);
-function same(a, b) {
-    const x = Buffer.from(a), y = Buffer.from(b);
-    return x.length === y.length && timingSafeEqual(x, y);
-}
 async function body(req) {
     const parts = []; let size = 0;
     for await (const chunk of req) {
@@ -29,6 +26,7 @@ async function body(req) {
 export async function createWeb({ directory = defaultDirectory, password, host = '0.0.0.0', port = 18889,
     call = (route, data) => localCall(directory, route, data) } = {}) {
     if (!password || password.length < 16) throw new Error('Web password must have at least 16 characters');
+    const auth = createWebAuth(password);
     const server = http.createServer(async (req, res) => {
         const send = (status, data) => {
             res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
@@ -39,21 +37,28 @@ export async function createWeb({ directory = defaultDirectory, password, host =
         res.setHeader('Referrer-Policy', 'no-referrer');
         res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'");
         if (!isLoopback(req.socket.remoteAddress) && !isPrivateAddress(req.socket.remoteAddress)) return send(403, { error: 'LAN only' });
-        const expected = 'Basic ' + Buffer.from('admin:' + password).toString('base64');
-        if (!same(req.headers.authorization || '', expected)) {
-            res.setHeader('WWW-Authenticate', 'Basic realm="Codex Auth Switcher", charset="UTF-8"');
-            return send(401, { error: 'Login required' });
-        }
         if (!/^localhost(?::\d+)?$|^127\.0\.0\.1(?::\d+)?$/.test(req.headers.host || '') &&
             !isPrivateAddress((req.headers.host || '').split(':')[0])) return send(403, { error: 'Invalid host' });
         if (req.headers.origin && req.headers.origin !== 'http://' + req.headers.host) return send(403, { error: 'Invalid origin' });
         if (req.headers['sec-fetch-site'] === 'cross-site') return send(403, { error: 'Invalid site' });
         try {
+            if (req.method === 'POST' && req.headers['x-switcher-web'] !== '1') return send(403, { error: 'Missing request guard' });
+            if (req.method === 'POST' && req.url === '/api/login') {
+                const data = await body(req);
+                const result = auth.login(req.socket.remoteAddress, data.username, data.password);
+                if (result.cookie) res.setHeader('Set-Cookie', result.cookie);
+                if (result.status === 429) res.setHeader('Retry-After', '60');
+                return send(result.status, result.status === 200 ? { ok: true } : { error: 'Login failed' });
+            }
+            const authenticated = auth.authenticated(req);
             if (req.method === 'GET' && req.url === '/') {
                 res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-                res.end(await fs.readFile(htmlFile)); return;
+                res.end(await fs.readFile(authenticated ? htmlFile : loginFile)); return;
             }
-            if (req.method === 'POST' && req.headers['x-switcher-web'] !== '1') return send(403, { error: 'Missing request guard' });
+            if (!authenticated) return send(401, { error: 'Login required' });
+            if (req.method === 'POST' && req.url === '/api/logout') {
+                res.setHeader('Set-Cookie', auth.logoutCookie()); return send(200, { ok: true });
+            }
             if (req.method === 'POST' && req.url === '/api/import') {
                 const data = await body(req);
                 const record = typeof data.auth === 'string' ? JSON.parse(data.auth) : data.auth;
