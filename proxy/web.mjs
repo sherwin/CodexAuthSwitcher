@@ -85,8 +85,9 @@ export async function createWeb({ directory = defaultDirectory, password, host =
             if (req.method === 'POST' && req.url === '/api/import') {
                 const data = await body(req);
                 const record = typeof data.auth === 'string' ? JSON.parse(data.auth) : data.auth;
-                if (!record?.tokens?.access_token || !record?.tokens?.refresh_token || record.OPENAI_API_KEY)
-                    return send(400, { error: '需要有效的 ChatGPT 授权 JSON 文件' });
+                const deepseek = record?.provider === 'deepseek' && typeof (record.DEEPSEEK_API_KEY || record.api_key) === 'string';
+                if ((!record?.tokens?.access_token || !record?.tokens?.refresh_token || record.OPENAI_API_KEY) && !deepseek)
+                    return send(400, { error: '需要有效的 ChatGPT 或 DeepSeek 授权 JSON 文件' });
                 const state = await readJSON(path.join(directory, 'proxy.json'));
                 const file = accountPath(state, data.name);
                 try { await fs.access(file); return send(409, { error: '同名文件已存在，请重命名后导入' }); }

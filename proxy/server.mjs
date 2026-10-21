@@ -10,7 +10,7 @@ import { pipeline } from 'node:stream/promises';
 import { fetch as undiciFetch, ProxyAgent, Agent } from 'undici';
 import { defaultDirectory, initialize, readJSON, writeJSON, locked, accountPath, provider,
     codexDirectory, ProxyError } from './storage.mjs';
-import { Credentials, upstream, claims, responseError, syncActive } from './credentials.mjs';
+import { Credentials, upstream, isDeepSeek, claims, responseError, syncActive } from './credentials.mjs';
 import { configure, configureAuthFile, unconfigure, restore, inspectConfiguration } from './config.mjs';
 import { isLoopback, isPrivateAddress, lanAddresses } from './network.mjs';
 import { collectResponse } from './responses.mjs';
@@ -108,6 +108,9 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
         if (state.mode === 'auth_file') await syncActive(state.auth_directory, codexHome);
         const file = accountPath(state, name);
         let record = await credentials.get(file);
+        if (isDeepSeek(record)) {
+            return { data: null, subscription: null, fetchedAt: new Date().toISOString(), tokenExpiresAt: null };
+        }
         if (record.OPENAI_API_KEY) throw new ProxyError('Subscription usage is unavailable for API keys.', 'usage_unavailable', 400);
         const fetchUsage = current => fetchUpstream('https://chatgpt.com/backend-api/wham/usage', {
             headers: { Authorization: `Bearer ${current.tokens.access_token}`, 'ChatGPT-Account-Id': current.tokens.account_id,
@@ -251,6 +254,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 }
             }
             const routes = { '/v1/responses': ['POST', 'responses'],
+                '/v1/chat/completions': ['POST', 'chat/completions'],
                 '/v1/responses/compact': ['POST', 'responses/compact'], '/v1/models': ['GET', 'models'] };
             const route = routes[url.pathname];
             if (paused) throw new ProxyError('代理正在更新网络设置，请稍后重试。', 'proxy_restarting', 503);
@@ -264,6 +268,9 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             if (request.method === 'POST') {
                 const input = await bodyJSON(request);
                 if (input.previous_response_id) throw new ProxyError('Send full conversation input when using account switching.', 'unsupported_continuation', 400);
+                if (route[1] === 'responses' && isDeepSeek(record)) {
+                    throw new ProxyError('DeepSeek accounts support /v1/chat/completions, not Responses.', 'unsupported_wire_api', 400);
+                }
                 if (route[1] === 'responses') {
                     if (input.stream != null && typeof input.stream !== 'boolean') {
                         throw new ProxyError('stream 必须为 true 或 false。', 'invalid_stream', 400);
@@ -278,6 +285,12 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                         if (typeof input.input === 'string') input.input = [{ role: 'user',
                             content: [{ type: 'input_text', text: input.input }] }];
                     }
+                }
+                if (route[1] === 'chat/completions') {
+                    if (typeof input.stream !== 'undefined' && typeof input.stream !== 'boolean')
+                        throw new ProxyError('stream 必须为 true 或 false。', 'invalid_stream', 400);
+                    stream = input.stream === true;
+                    upstreamStream = stream;
                 }
                 body = JSON.stringify(input);
             }

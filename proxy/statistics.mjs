@@ -14,11 +14,18 @@ export function beijingTime(now = Date.now()) {
 }
 export function usageAccount(name, record) {
     const ids = identity(record);
-    const source = record.OPENAI_API_KEY ? 'api:' + record.OPENAI_API_KEY : ids.every(Boolean) ? JSON.stringify(ids) : 'file:' + name;
+    const key = record.OPENAI_API_KEY || record.DEEPSEEK_API_KEY || record.api_key;
+    const source = key ? 'api:' + key : ids.every(Boolean) ? JSON.stringify(ids) : 'file:' + name;
     return { id: createHash('sha256').update(source).digest('hex'), name };
 }
 export function normalizedUsage(usage) {
     const valid = value => Number.isSafeInteger(value) && value >= 0;
+    if (usage && valid(usage.prompt_tokens) && valid(usage.completion_tokens)) {
+        return { input_tokens: usage.prompt_tokens, output_tokens: usage.completion_tokens,
+            total_tokens: valid(usage.total_tokens) ? usage.total_tokens : usage.prompt_tokens + usage.completion_tokens,
+            cached_tokens: valid(usage.prompt_tokens_details?.cached_tokens) ? usage.prompt_tokens_details.cached_tokens : 0,
+            reasoning_tokens: 0 };
+    }
     if (!usage || !valid(usage.input_tokens) || !valid(usage.output_tokens)) return null;
     const total = valid(usage.total_tokens) ? usage.total_tokens : usage.input_tokens + usage.output_tokens;
     if (!valid(total)) return null;

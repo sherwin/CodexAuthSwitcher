@@ -22,7 +22,15 @@ export function sameIdentity(a, b) {
     return left.every(Boolean) && left.every((value, index) => value === right[index]);
 }
 
+export function isDeepSeek(record) {
+    return record?.provider === 'deepseek' || typeof record?.DEEPSEEK_API_KEY === 'string';
+}
+
 export function upstream(record, route) {
+    if (isDeepSeek(record)) {
+        const key = record.DEEPSEEK_API_KEY || record.api_key;
+        return { url: `https://api.deepseek.com/${route}`, token: key, provider: 'deepseek' };
+    }
     if (record.OPENAI_API_KEY) return { url: `https://api.openai.com/v1/${route}`, token: record.OPENAI_API_KEY };
     const base = record.client_id && record.client_id !== legacyClient
         ? 'https://api.openai.com/v1/' : 'https://chatgpt.com/backend-api/codex/';
@@ -54,7 +62,7 @@ export class Credentials {
         const hash = createHash('sha256').update(session).digest('hex');
         return locked(path.join(this.directory, 'locks', hash + '.mutex'), async () => {
             let record = await readJSON(file);
-            if (record.OPENAI_API_KEY) return record;
+            if (record.OPENAI_API_KEY || isDeepSeek(record)) return record;
             let tokens = record.tokens || {};
             const expiry = claims(tokens.access_token || '').exp || 0;
             if (failedToken && tokens.access_token !== failedToken) return record;

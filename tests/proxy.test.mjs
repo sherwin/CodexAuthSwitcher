@@ -638,6 +638,23 @@ test('API key upstream receives stream false and its JSON is passed through', as
     assert.deepEqual(await response.json(), finalResponse);
 });
 
+test('DeepSeek accounts route OpenAI-compatible chat completions and usage fields', async t => {
+    let target;
+    const f = await gatewayFixture(t, async (url, options) => {
+        target = { url, headers: options.headers, body: JSON.parse(options.body) };
+        return Response.json({ id: 'chatcmpl-test', choices: [{ message: { role: 'assistant', content: '你好' } }],
+            usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } });
+    });
+    await writeJSON(path.join(f.auth, 'a.json'), { provider: 'deepseek', DEEPSEEK_API_KEY: 'sk-test' });
+    const response = await f.call('/v1/chat/completions', { model: 'deepseek-chat', messages: [{ role: 'user', content: '你好' }] });
+    assert.equal(response.status, 200);
+    assert.equal(target.url, 'https://api.deepseek.com/chat/completions');
+    assert.equal(target.headers.Authorization, 'Bearer sk-test');
+    assert.equal(target.body.model, 'deepseek-chat');
+    assert.equal((await response.json()).choices[0].message.content, '你好');
+    assert.equal((await f.call('/v1/responses', { model: 'deepseek-chat', input: '你好' })).status, 400);
+});
+
 test('generated default curl is non-streaming and returns JSON through the gateway', async t => {
     if (process.platform === 'win32') { t.skip('POSIX shell integration'); return; }
     const f = await gatewayFixture(t, async () => new Response(completedSSE(finalResponse),

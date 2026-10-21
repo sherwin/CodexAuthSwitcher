@@ -160,7 +160,7 @@ The generated key is stored in a private `proxy.json` and Codex provider setting
 Authorization files retain the existing JSON format and use atomic replacement with `0600` permissions.
 Keychain migration is not included in this version; Windows users should restrict the state and auth directories to their own account.
 
-Supported routes: `POST /v1/responses`, `POST /v1/responses/compact`, `GET /v1/models`.
+Supported routes: `POST /v1/responses`, `POST /v1/responses/compact`, `POST /v1/chat/completions`, `GET /v1/models`.
 Each request fixes its upstream account at admission. Existing streams retain that account after a switch.
 SSE streams use backpressure and propagate cancellation; headers, upstream status codes, request IDs, and rate-limit headers are forwarded.
 Responses requests honor `stream`: omitted/false returns one Responses JSON object; true forwards SSE unchanged.
@@ -171,6 +171,11 @@ API-key upstreams receive the requested streaming flag directly. Ordinary text `
 legacy Codex backend's message-array format. The API remains Responses, not Chat Completions.
 WebSockets are disabled in the installed provider. Conversation requests must carry full input, without `previous_response_id`.
 Model inference is routed to the Codex backend for legacy Codex OAuth credentials, and to the standard API for explicit API credentials or newer OAuth registrations.
+DeepSeek API-key accounts are supported by placing a JSON file such as
+`{"provider":"deepseek","DEEPSEEK_API_KEY":"sk-..."}` in the selected authorization directory.
+They route `/v1/chat/completions` to `https://api.deepseek.com/chat/completions` and retain the
+OpenAI-compatible request and response format. DeepSeek accounts do not support the Codex
+Responses route or subscription quota display.
 Subscription accounts are validated using the usage API before selection. API-key account selection is currently not exposed in the subscription picker.
 Refreshing a legacy Codex session uses its legacy OAuth endpoint; newer registered clients use the documented registration endpoint.
 Refreshes use `proper-lockfile` across UI and service requests, save rotated credentials together, and retry an expired-token request at most once.
