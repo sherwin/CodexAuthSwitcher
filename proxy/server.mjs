@@ -317,7 +317,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 }
                 result = await fetchUpstream(target.url, { method: request.method, headers, body,
                     redirect: 'manual', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(600000)]) });
-                if (result.status !== 401 || attempt !== 0 || record.OPENAI_API_KEY) break;
+                if (result.status !== 401 || attempt !== 0 || record.OPENAI_API_KEY || isDeepSeek(record)) break;
                 const error = await responseError(result);
                 if (!retryableAuthCodes.has(error.code)) throw error;
                 record = await credentials.get(file, { force: true, failedToken: record.tokens.access_token });
@@ -360,6 +360,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                     if (event.type === 'response.completed' && event.response?.status === 'completed') terminalCompleted = true;
                     if (['response.completed', 'response.incomplete', 'response.failed'].includes(event.type) &&
                         normalizedUsage(event.response?.usage)) tokenUsage ||= event.response.usage;
+                    if (normalizedUsage(event.usage)) tokenUsage ||= event.usage;
                 });
                 function observe(chunk, finish = false) {
                     try { if (observer) { if (finish) observer.finish(); else observer.push(chunk); } }
