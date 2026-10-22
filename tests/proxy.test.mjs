@@ -653,6 +653,7 @@ test('DeepSeek accounts route OpenAI-compatible chat completions and usage field
     assert.equal(target.body.model, 'deepseek-chat');
     assert.equal((await response.json()).choices[0].message.content, '你好');
     assert.equal((await f.call('/v1/responses', { model: 'deepseek-chat', input: '你好' })).status, 400);
+    assert.equal((await f.call('/v1/responses/compact', { model: 'deepseek-chat', input: '你好' })).status, 400);
 });
 
 test('DeepSeek streaming chat completion records top-level usage and does not retry API-key 401', async t => {

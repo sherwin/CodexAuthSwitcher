@@ -268,7 +268,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             if (request.method === 'POST') {
                 const input = await bodyJSON(request);
                 if (input.previous_response_id) throw new ProxyError('Send full conversation input when using account switching.', 'unsupported_continuation', 400);
-                if (route[1] === 'responses' && isDeepSeek(record)) {
+                if (route[1].startsWith('responses') && isDeepSeek(record)) {
                     throw new ProxyError('DeepSeek accounts support /v1/chat/completions, not Responses.', 'unsupported_wire_api', 400);
                 }
                 if (route[1] === 'responses') {

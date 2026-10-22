@@ -85,7 +85,8 @@ export async function createWeb({ directory = defaultDirectory, password, host =
             if (req.method === 'POST' && req.url === '/api/import') {
                 const data = await body(req);
                 const record = typeof data.auth === 'string' ? JSON.parse(data.auth) : data.auth;
-                const deepseek = record?.provider === 'deepseek' && typeof (record.DEEPSEEK_API_KEY || record.api_key) === 'string';
+                const deepseek = record?.provider === 'deepseek' && typeof (record.DEEPSEEK_API_KEY || record.api_key) === 'string' &&
+                    Boolean(record.DEEPSEEK_API_KEY || record.api_key);
                 if ((!record?.tokens?.access_token || !record?.tokens?.refresh_token || record.OPENAI_API_KEY) && !deepseek)
                     return send(400, { error: '需要有效的 ChatGPT 或 DeepSeek 授权 JSON 文件' });
                 const state = await readJSON(path.join(directory, 'proxy.json'));
