@@ -26,10 +26,25 @@ export function isDeepSeek(record) {
     return record?.provider === 'deepseek' || typeof record?.DEEPSEEK_API_KEY === 'string';
 }
 
+export function deepSeekSettings(record) {
+    const value = record.base_url ?? 'https://api.deepseek.com';
+    let url;
+    try { url = new URL(value); } catch { /* Validated below. */ }
+    if (typeof value !== 'string' || !url || !['https:', 'http:'].includes(url.protocol) ||
+        url.username || url.password || url.search || url.hash || /[\s\\]/.test(value)) {
+        throw new ProxyError('Base URL 必须是 HTTP/HTTPS 地址，不能包含账号、查询参数或片段。', 'invalid_base_url', 400);
+    }
+    const key = record.DEEPSEEK_API_KEY ?? record.api_key;
+    if (typeof key !== 'string' || !key || key.length > 4096 || /[^\x21-\x7e]/.test(key)) {
+        throw new ProxyError('请输入有效的 DeepSeek API Key。', 'invalid_api_key', 400);
+    }
+    return { base_url: url.href.replace(/\/+$/, ''), api_key: key };
+}
+
 export function upstream(record, route) {
     if (isDeepSeek(record)) {
-        const key = record.DEEPSEEK_API_KEY || record.api_key;
-        return { url: `https://api.deepseek.com/${route}`, token: key, provider: 'deepseek' };
+        const settings = deepSeekSettings(record);
+        return { url: `${settings.base_url}/${route}`, token: settings.api_key, provider: 'deepseek' };
     }
     if (record.OPENAI_API_KEY) return { url: `https://api.openai.com/v1/${route}`, token: record.OPENAI_API_KEY };
     const base = record.client_id && record.client_id !== legacyClient
@@ -62,7 +77,8 @@ export class Credentials {
         const hash = createHash('sha256').update(session).digest('hex');
         return locked(path.join(this.directory, 'locks', hash + '.mutex'), async () => {
             let record = await readJSON(file);
-            if (record.OPENAI_API_KEY || isDeepSeek(record)) return record;
+            if (isDeepSeek(record)) { deepSeekSettings(record); return record; }
+            if (record.OPENAI_API_KEY) return record;
             let tokens = record.tokens || {};
             const expiry = claims(tokens.access_token || '').exp || 0;
             if (failedToken && tokens.access_token !== failedToken) return record;

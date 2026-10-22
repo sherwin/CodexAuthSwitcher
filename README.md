@@ -168,14 +168,25 @@ For legacy Codex credentials the upstream requires SSE, so non-streaming request
 while retaining output items (including tools/reasoning), usage, and incomplete status. Failed or truncated
 streams produce an error instead of partial success; aggregation is limited to 32 MiB of upstream events.
 API-key upstreams receive the requested streaming flag directly. Ordinary text `input` is adapted to the
-legacy Codex backend's message-array format. The API remains Responses, not Chat Completions.
+legacy Codex backend's message-array format. Codex connections continue to use Responses.
 WebSockets are disabled in the installed provider. Conversation requests must carry full input, without `previous_response_id`.
 Model inference is routed to the Codex backend for legacy Codex OAuth credentials, and to the standard API for explicit API credentials or newer OAuth registrations.
-DeepSeek API-key accounts are supported by placing a JSON file such as
-`{"provider":"deepseek","DEEPSEEK_API_KEY":"sk-..."}` in the selected authorization directory.
-They route `/v1/chat/completions` to `https://api.deepseek.com/chat/completions` and retain the
-OpenAI-compatible request and response format. DeepSeek accounts do not support the Codex
-Responses route or subscription quota display.
+Use **本地代理 → 添加 DeepSeek 账号** in either the desktop or Web UI to enter an account name,
+Base URL (defaults to `https://api.deepseek.com`) and API Key. Save the account, then select its card
+as the proxy exit; selection validates access using the configured `/models` endpoint without inference.
+**编辑配置** changes the Base URL or replaces the Key; leave Key empty to retain it. Saved Keys
+are never returned to the UI. Configuration is stored in the selected authorization directory with
+private file permissions. Existing JSON files such as
+`{"provider":"deepseek","base_url":"https://api.deepseek.com","DEEPSEEK_API_KEY":"sk-..."}` also work.
+Base URLs may include a path such as `/v1`; the proxy appends `/responses`, `/chat/completions` or `/models`.
+Use HTTPS whenever possible; HTTP sends the upstream Key in plaintext.
+DeepSeek accounts route `/v1/responses` and `/v1/chat/completions` to the configured Base URL
+and retain the OpenAI-compatible request and response format. DeepSeek natively supports
+[Responses](https://api-docs.deepseek.com/zh-cn/guides/responses_api/), including streaming and tools.
+Specify a DeepSeek model such as `deepseek-flash` in your client; saving an account does not change
+Codex's model configuration. Compact and ChatGPT subscription quota queries are unavailable.
+Their cards are excluded from Codex authorization-file mode. The curl example automatically uses
+Chat Completions with `deepseek-flash` for DeepSeek exits; clients can supply any supported model.
 Subscription accounts are validated using the usage API before selection. API-key account selection is currently not exposed in the subscription picker.
 Refreshing a legacy Codex session uses its legacy OAuth endpoint; newer registered clients use the documented registration endpoint.
 Refreshes use `proper-lockfile` across UI and service requests, save rotated credentials together, and retry an expired-token request at most once.

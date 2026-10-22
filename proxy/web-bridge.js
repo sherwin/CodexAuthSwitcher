@@ -1,7 +1,7 @@
 /* Adapt the unchanged desktop renderer to the authenticated Surface backend. */
 (() => {
     const routes = { status: ['status'], accounts: ['accounts'], statistics: ['statistics'],
-        usage: ['usage', true], select: ['select', true], configure: ['configure', true],
+        usage: ['usage', true], select: ['select', true], deepseek: ['deepseek', true], configure: ['configure', true],
         authFile: ['auth-file', true], unconfigure: ['unconfigure', true] };
     async function request(route, data) {
         const response = await fetch('/api/' + route, { method: data === undefined ? 'GET' : 'POST',

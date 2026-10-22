@@ -67,7 +67,7 @@ export function createWebOperations(directory, { call, gateway,
             if (!['preview', 'copy'].includes(input?.action))
                 throw new ProxyError('不支持的命令操作。', 'invalid_action', 400);
             const state = await readJSON(stateFile), health = await call('/health');
-            return { command: curlCommand(state, '', { masked: input.action === 'preview',
+            return { command: curlCommand({ ...state, selected_provider: health.selected_provider }, '', { masked: input.action === 'preview',
                 host: shareHost(health, input.target), stream: input.stream === true }) };
         },
     };

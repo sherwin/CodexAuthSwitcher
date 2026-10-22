@@ -36,7 +36,7 @@
     <p class="muted network-help">默认 18888 · 管理接口仅限本机 · 局域网 HTTP 不加密，请勿公网转发。Key 模式改端口会同步 Codex 地址，需重启 Codex；远程客户端须自行更新。</p>
   </section>
   <details id="curl-panel">
-    <summary>curl 调用示例 · 本地 Responses API</summary>
+    <summary>curl 调用示例 · 当前代理出口</summary>
     <div class="curl-controls"><label>调用地址 <select id="curl-target"><option value="127.0.0.1">本机</option></select></label>
     <label>返回方式 <select id="curl-stream"><option value="false">普通 JSON（默认）</option><option value="true">流式 SSE（Codex）</option></select></label>
     </div>
@@ -45,10 +45,23 @@
     <span id="curl-copy-status" class="muted" role="status"></span>
   </details>
   </div>
-  <div class="list-heading"><h2>代理出口账号</h2><button id="directory" class="text-button">选择授权目录</button></div>
+  <div class="list-heading"><h2>代理出口账号</h2><div class="actions"><button id="add-deepseek">添加 DeepSeek 账号</button><button id="directory" class="text-button">选择授权目录</button></div></div>
   <p class="muted">切换只影响代理的新请求，不修改 Codex 直连授权；进行中的请求继续使用原账号。</p>
   <p id="directory-path" class="muted path"></p>
   <main id="accounts"><p class="muted">读取账号…</p></main>
+  <dialog id="deepseek-dialog" class="account-dialog" aria-labelledby="deepseek-title">
+    <form id="deepseek-form">
+      <h2 id="deepseek-title">添加 DeepSeek 账号</h2>
+      <label>账号名称<input id="deepseek-name" type="text" required maxlength="100" placeholder="例如：DeepSeek 主账号"></label>
+      <label>Base URL<input id="deepseek-url" type="url" required value="https://api.deepseek.com" autocomplete="off" spellcheck="false"></label>
+      <p class="muted">填写 API 根地址，例如 https://api.deepseek.com 或带 /v1 的兼容地址，不含 /chat/completions。</p>
+      <label>API Key<input id="deepseek-key" type="password" required maxlength="4096" autocomplete="off" spellcheck="false"></label>
+      <p id="deepseek-key-help" class="muted">Key 仅保存在当前授权目录，保存后不会显示。HTTP 地址会以明文传输 Key，请优先使用 HTTPS。</p>
+      <p class="muted">支持 Responses 和 Chat Completions。调用时请指定 DeepSeek 模型，例如 deepseek-flash；保存账号不会自动修改 Codex 的模型设置。</p>
+      <p id="deepseek-status" class="card-status error" role="status"></p>
+      <div class="actions"><button id="cancel-deepseek" type="button">取消</button><button id="save-deepseek" class="primary" type="submit">保存账号</button></div>
+    </form>
+  </dialog>
   </section>
   <section id="codex-page" role="tabpanel" aria-labelledby="tab-codex" hidden>
     <section class="card codex-panel" aria-labelledby="codex-title">

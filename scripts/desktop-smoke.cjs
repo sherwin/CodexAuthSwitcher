@@ -34,6 +34,44 @@ app.on('browser-window-created', (_event, window) => {
                     ? setTimeout(ready, 20) : resolve();
                 ready();
             })`);
+            await window.webContents.executeJavaScript(`(async () => {
+                document.querySelector('#add-deepseek').click();
+                if (!document.querySelector('#deepseek-dialog').open) throw Error('DeepSeek form did not open');
+                document.querySelector('#deepseek-name').value = 'DeepSeek smoke';
+                document.querySelector('#deepseek-url').value = 'https://example.com/v1/';
+                document.querySelector('#deepseek-key').value = 'offline-deepseek-key';
+                document.querySelector('#deepseek-form').requestSubmit();
+                await new Promise((resolve, reject) => {
+                    const ready = () => {
+                        if (document.querySelector('#deepseek-dialog').open && !document.querySelector('#save-deepseek').disabled)
+                            return reject(Error(document.querySelector('#deepseek-status').textContent || 'Save did not start'));
+                        if (!document.querySelector('#save-deepseek').disabled && !document.querySelector('#refresh').disabled) resolve();
+                        else setTimeout(ready, 20);
+                    };
+                    ready();
+                });
+                const list = await window.authSwitcher.call('accounts');
+                const account = list.result.accounts.find(item => item.name === 'DeepSeek smoke.json');
+                if (!account || account.base_url !== 'https://example.com/v1') throw Error('Desktop did not save DeepSeek fields');
+                if (JSON.stringify(list).includes('offline-deepseek-key')) throw Error('Saved key leaked to renderer');
+                if (!document.querySelector('#accounts').textContent.includes('编辑配置')) throw Error('DeepSeek card missing');
+                if (document.querySelector('#codex-accounts').textContent.includes('DeepSeek smoke')) throw Error('DeepSeek listed for Codex auth-file');
+                document.querySelector('#accounts .actions button').click();
+                if (document.querySelector('#deepseek-key').value || document.querySelector('#deepseek-key').required)
+                    throw Error('Edit must preserve key without returning it');
+                document.querySelector('#deepseek-url').value = 'https://api.deepseek.com';
+                document.querySelector('#deepseek-form').requestSubmit();
+                await new Promise(resolve => {
+                    const ready = () => document.querySelector('#save-deepseek').disabled || document.querySelector('#refresh').disabled
+                        ? setTimeout(ready, 20) : resolve();
+                    ready();
+                });
+                if (document.querySelector('#deepseek-dialog').open) throw Error('DeepSeek edit failed');
+                if (document.querySelector('#deepseek-key').value) throw Error('Closed form retained API Key');
+            })()`);
+            const account = JSON.parse(fs.readFileSync(path.join(process.env.AUTH_SWITCHER_AUTH_DIR, 'DeepSeek smoke.json')));
+            if (account.DEEPSEEK_API_KEY !== 'offline-deepseek-key' || account.base_url !== 'https://api.deepseek.com')
+                throw Error('Desktop edit did not preserve the saved Key');
             finish();
         } catch (error) { finish(error); }
     });

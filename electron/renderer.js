@@ -17,6 +17,48 @@ let notificationTimer;
 let lastHealthError;
 let codexMode;
 let observedCodexMode;
+let editingDeepSeek = false;
+let savingDeepSeek = false;
+
+function openDeepSeek(item) {
+    const form = document.querySelector('#deepseek-form');
+    form.reset();
+    editingDeepSeek = Boolean(item);
+    document.querySelector('#deepseek-title').textContent = item ? '编辑 DeepSeek 账号' : '添加 DeepSeek 账号';
+    document.querySelector('#deepseek-name').value = item?.name || '';
+    document.querySelector('#deepseek-name').disabled = Boolean(item);
+    document.querySelector('#deepseek-url').value = item?.base_url || 'https://api.deepseek.com';
+    document.querySelector('#deepseek-key').required = !item;
+    document.querySelector('#deepseek-key').placeholder = item ? '留空保留已有 Key' : '输入 DeepSeek API Key';
+    document.querySelector('#deepseek-status').textContent = '';
+    document.querySelector('#deepseek-dialog').showModal();
+}
+
+document.querySelector('#add-deepseek').addEventListener('click', () => openDeepSeek());
+document.querySelector('#cancel-deepseek').addEventListener('click', () => document.querySelector('#deepseek-dialog').close());
+document.querySelector('#deepseek-dialog').addEventListener('cancel', event => { if (savingDeepSeek) event.preventDefault(); });
+document.querySelector('#deepseek-dialog').addEventListener('close', () => { document.querySelector('#deepseek-key').value = ''; });
+document.querySelector('#deepseek-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (savingDeepSeek) return;
+    savingDeepSeek = true;
+    document.querySelector('#save-deepseek').disabled = true;
+    document.querySelector('#cancel-deepseek').disabled = true;
+    const name = document.querySelector('#deepseek-name').value.trim();
+    try {
+        await call('deepseek', { name: name.endsWith('.json') ? name : name + '.json',
+            base_url: document.querySelector('#deepseek-url').value.trim(),
+            api_key: document.querySelector('#deepseek-key').value, edit: editingDeepSeek });
+        document.querySelector('#deepseek-dialog').close();
+        await refresh();
+        message('DeepSeek 账号已保存，可在账号卡片中切换为代理出口。');
+    } catch (error) { document.querySelector('#deepseek-status').textContent = error.message; }
+    finally {
+        savingDeepSeek = false;
+        document.querySelector('#save-deepseek').disabled = false;
+        document.querySelector('#cancel-deepseek').disabled = false;
+    }
+});
 
 function renderCodexMode() {
     const mode = codexMode || 'unconfigured';
@@ -217,6 +259,7 @@ function renderAccounts(target, direct) {
     const cards = [];
     if (!items.length) { target.replaceChildren(element('p', 'muted', '此目录没有 JSON 授权文件，请选择授权目录。')); return; }
     for (const item of items) {
+        if (direct && item.provider === 'deepseek') continue;
         const cached = usage.get(item.name);
         const data = cached?.data;
         const limits = data?.rate_limit || data?.rateLimitsByLimitId?.codex || data?.rateLimits;
@@ -237,6 +280,18 @@ function renderAccounts(target, direct) {
         const actions = element('div', 'actions');
         actions.append(refreshButton, select);
         header.append(label, actions);
+        if (item.provider === 'deepseek') {
+            label.append(element('span', 'plan', 'DeepSeek · API Key'));
+            const edit = element('button', '', '编辑配置');
+            edit.disabled = busy;
+            edit.addEventListener('click', () => openDeepSeek(item));
+            actions.replaceChildren(edit, select);
+            card.append(header, element('p', 'muted path', item.base_url || 'Base URL 配置无效'),
+                element('p', 'card-status', 'Responses / Chat Completions · API Key 已保存'),
+                element('p', 'card-status', '调用时请选择 DeepSeek 模型 · 不提供 ChatGPT 订阅额度'));
+            cards.push(card);
+            continue;
+        }
         const metrics = element('div', 'metrics');
         const credits = data?.rate_limit_reset_credits || data?.rateLimitResetCredits;
         const available = Array.isArray(credits?.credits) ? credits.credits.filter(item => item?.status === 'available') : [];
@@ -258,6 +313,7 @@ function renderAccounts(target, direct) {
         card.append(tokenStatus);
         cards.push(card);
     }
+    if (!cards.length) cards.push(element('p', 'muted', '没有可用于 Codex 直连的 ChatGPT 授权文件。'));
     target.replaceChildren(...cards);
 }
 
@@ -330,7 +386,7 @@ async function updateHealth() {
             ? addresses.length ? '局域网 Base URL：' + addresses.map(ip => `http://${ip}:${health.port}/v1`).join(' · ')
                 : '局域网已开启，但未发现私有 IPv4 地址，请检查网络连接。'
             : `仅本机访问：http://127.0.0.1:${health.port}/v1`;
-        const signature = JSON.stringify([health.port, health.lan_enabled, addresses]);
+        const signature = JSON.stringify([health.port, health.lan_enabled, addresses, health.selected_provider]);
         if (addressSignature !== signature) {
             const target = document.querySelector('#curl-target');
             const previous = target.value;
@@ -392,7 +448,7 @@ async function refresh() {
         document.querySelector('#directory-path').textContent = result.authDirectory;
         document.querySelector('#codex-directory-path').textContent = result.authDirectory;
         render();
-        await Promise.all(items.map(item => refreshAccount(item.name)));
+        await Promise.all(items.filter(item => item.provider !== 'deepseek').map(item => refreshAccount(item.name)));
     } catch (error) { message(error.message, true); }
     finally { document.querySelector('#refresh').disabled = false; }
 }

@@ -642,6 +642,7 @@ test('DeepSeek accounts route OpenAI-compatible chat completions and usage field
     let target;
     const f = await gatewayFixture(t, async (url, options) => {
         target = { url, headers: options.headers, body: JSON.parse(options.body) };
+        if (url.endsWith('/responses')) return Response.json(finalResponse);
         return Response.json({ id: 'chatcmpl-test', choices: [{ message: { role: 'assistant', content: '你好' } }],
             usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } });
     });
@@ -652,8 +653,87 @@ test('DeepSeek accounts route OpenAI-compatible chat completions and usage field
     assert.equal(target.headers.Authorization, 'Bearer sk-test');
     assert.equal(target.body.model, 'deepseek-chat');
     assert.equal((await response.json()).choices[0].message.content, '你好');
-    assert.equal((await f.call('/v1/responses', { model: 'deepseek-chat', input: '你好' })).status, 400);
+    const responses = await f.call('/v1/responses', { model: 'deepseek-flash', input: '你好' });
+    assert.equal(responses.status, 200);
+    assert.deepEqual(await responses.json(), finalResponse);
+    assert.equal(target.url, 'https://api.deepseek.com/responses');
+    assert.equal(target.body.stream, false);
     assert.equal((await f.call('/v1/responses/compact', { model: 'deepseek-chat', input: '你好' })).status, 400);
+});
+
+test('DeepSeek configuration saves, edits without exposing keys, validates selection and routes custom Base URLs', async t => {
+    const calls = [];
+    let fail = false;
+    const f = await gatewayFixture(t, async (url, options) => {
+        calls.push({ url, token: options.headers.Authorization });
+        return fail ? Response.json({ error: { code: 'invalid_api_key' } }, { status: 401 })
+            : Response.json(url.endsWith('/models') ? { data: [] } : { choices: [] });
+    });
+    const input = { name: 'deepseek.json', base_url: 'https://example.com/proxy/v1/', api_key: 'sk-private-key' };
+    assert.equal((await f.call('/admin/deepseek', input)).status, 200);
+    assert.equal((await f.call('/admin/deepseek', input)).status, 409);
+    assert.equal((await f.call('/admin/deepseek', { ...input, name: 'a.json', edit: true })).status, 409);
+    assert.equal((await f.call('/admin/deepseek', { ...input, name: '../outside.json' })).status, 400);
+    for (const base_url of ['ftp://example.com', 'https://user:pass@example.com', 'https://example.com?key=secret', 'not-a-url'])
+        assert.equal((await f.call('/admin/deepseek', { ...input, name: 'bad.json', base_url })).status, 400);
+    for (const api_key of ['', '   ', 'key\nheader'])
+        assert.equal((await f.call('/admin/deepseek', { ...input, name: 'bad.json', api_key })).status, 400);
+    const file = path.join(f.auth, input.name);
+    assert.equal((await readJSON(file)).base_url, 'https://example.com/proxy/v1');
+    if (process.platform !== 'win32') assert.equal((await fs.stat(file)).mode & 0o777, 0o600);
+    const listing = await (await f.call('/admin/accounts')).json();
+    assert.equal(listing.accounts.find(item => item.name === input.name).provider, 'deepseek');
+    assert.ok(!JSON.stringify(listing).includes(input.api_key));
+    assert.equal((await f.call('/admin/select', { name: input.name })).status, 200);
+    assert.equal(calls[0].url, 'https://example.com/proxy/v1/models');
+    assert.equal(calls[0].token, 'Bearer sk-private-key');
+    assert.equal((await f.call('/v1/chat/completions', { model: 'deepseek-flash', messages: [] })).status, 200);
+    assert.equal(calls[1].url, 'https://example.com/proxy/v1/chat/completions');
+    assert.equal((await f.call('/admin/deepseek', { ...input, edit: true, api_key: '', base_url: 'https://other.example/v1' })).status, 200);
+    assert.equal((await readJSON(file)).DEEPSEEK_API_KEY, input.api_key);
+    assert.equal((await f.call('/admin/deepseek', { ...input, edit: true, api_key: 'sk-replacement' })).status, 200);
+    assert.equal((await readJSON(file)).DEEPSEEK_API_KEY, 'sk-replacement');
+    const health = await (await f.call('/health')).json();
+    assert.equal(health.selected_provider, 'deepseek');
+    assert.ok(!JSON.stringify(health).includes('sk-replacement'));
+    const command = curlCommand({ ...f.state, port: 18888, selected_provider: health.selected_provider });
+    assert.match(command, /\/v1\/chat\/completions/);
+    assert.match(command, /"messages"/);
+    assert.match(command, /"model":"deepseek-flash"/);
+    assert.ok(!command.includes('sk-replacement'));
+    await writeJSON(path.join(f.directory, 'proxy.json'), f.state);
+    fail = true;
+    assert.equal((await f.call('/admin/select', { name: input.name })).status, 401);
+    assert.equal((await readJSON(path.join(f.directory, 'proxy.json'))).selected_file, 'a.json');
+});
+
+test('DeepSeek selection detects configuration edits during validation', async t => {
+    let f;
+    f = await gatewayFixture(t, async () => {
+        await f.call('/admin/deepseek', { name: 'deepseek.json', edit: true,
+            api_key: 'new-key', base_url: 'https://api.deepseek.com' });
+        return Response.json({ data: [] });
+    });
+    await f.call('/admin/deepseek', { name: 'deepseek.json', api_key: 'old-key', base_url: 'https://api.deepseek.com' });
+    assert.equal((await f.call('/admin/select', { name: 'deepseek.json' })).status, 409);
+    assert.equal((await readJSON(path.join(f.directory, 'proxy.json'))).selected_file, 'a.json');
+});
+
+test('DeepSeek Responses streams retain tools and usage through the configured Base URL', async t => {
+    const f = await gatewayFixture(t, async (url, options) => {
+        assert.equal(url, 'https://example.com/v1/responses');
+        assert.equal(options.headers.Authorization, 'Bearer sk-deepseek-test');
+        assert.equal(JSON.parse(options.body).stream, true);
+        return new Response(completedSSE(finalResponse), { headers: { 'Content-Type': 'text/event-stream' } });
+    });
+    await writeJSON(path.join(f.auth, 'a.json'), { provider: 'deepseek', base_url: 'https://example.com/v1/',
+        DEEPSEEK_API_KEY: 'sk-deepseek-test' });
+    const response = await f.call('/v1/responses', { model: 'deepseek-flash', input: 'hello', stream: true });
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), completedSSE(finalResponse));
+    const statistics = await (await f.call('/admin/statistics')).json();
+    assert.equal(statistics.periods.day.totals.input_tokens, finalResponse.usage.input_tokens);
+    assert.equal(statistics.periods.day.totals.output_tokens, finalResponse.usage.output_tokens);
 });
 
 test('DeepSeek streaming chat completion records top-level usage and does not retry API-key 401', async t => {

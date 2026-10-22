@@ -9,11 +9,13 @@ import { isLoopback, isPrivateAddress } from './network.mjs';
 import { desktopHTML, webAsset } from './web-assets.mjs';
 import { createWebOperations } from './web-operations.mjs';
 import { createWebRuntime } from './web-runtime.mjs';
+import { isDeepSeek, deepSeekSettings } from './credentials.mjs';
 
 const loginFile = new URL('./web-login.html', import.meta.url);
 const routes = new Map([
     ['GET /api/accounts', '/admin/accounts'], ['GET /api/status', '/health'],
     ['POST /api/usage', '/admin/usage'], ['POST /api/select', '/admin/select'],
+    ['POST /api/deepseek', '/admin/deepseek'],
     ['POST /api/auth-file', '/admin/auth-file'], ['POST /api/configure', '/admin/configure'],
     ['GET /api/statistics', '/admin/statistics'], ['POST /api/unconfigure', '/admin/unconfigure'],
 ]);
@@ -85,8 +87,8 @@ export async function createWeb({ directory = defaultDirectory, password, host =
             if (req.method === 'POST' && req.url === '/api/import') {
                 const data = await body(req);
                 const record = typeof data.auth === 'string' ? JSON.parse(data.auth) : data.auth;
-                const deepseek = record?.provider === 'deepseek' && typeof (record.DEEPSEEK_API_KEY || record.api_key) === 'string' &&
-                    Boolean(record.DEEPSEEK_API_KEY || record.api_key);
+                const deepseek = isDeepSeek(record);
+                if (deepseek) deepSeekSettings(record);
                 if ((!record?.tokens?.access_token || !record?.tokens?.refresh_token || record.OPENAI_API_KEY) && !deepseek)
                     return send(400, { error: '需要有效的 ChatGPT 或 DeepSeek 授权 JSON 文件' });
                 const state = await readJSON(path.join(directory, 'proxy.json'));

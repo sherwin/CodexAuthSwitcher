@@ -63,11 +63,13 @@ else {
         ipcMain.handle('proxy-call', async (_event, action, input) => {
             if (networkBusy && action !== 'status') return { ok: false, error: '网络设置正在更新，请稍后重试。' };
             const allowed = { status: '/health', accounts: '/admin/accounts', statistics: '/admin/statistics', usage: '/admin/usage',
-                select: '/admin/select', configure: '/admin/configure', authFile: '/admin/auth-file', unconfigure: '/admin/unconfigure' };
+                select: '/admin/select', deepseek: '/admin/deepseek', configure: '/admin/configure', authFile: '/admin/auth-file', unconfigure: '/admin/unconfigure' };
             if (!Object.hasOwn(allowed, action)) throw new Error('Unsupported action.');
             try {
                 const result = await service.localCall(directory, allowed[action],
-                    ['status', 'accounts', 'statistics'].includes(action) ? undefined : { name: typeof input?.name === 'string' ? input.name : undefined });
+                    ['status', 'accounts', 'statistics'].includes(action) ? undefined : action === 'deepseek'
+                        ? { name: input?.name, base_url: input?.base_url, api_key: input?.api_key, edit: input?.edit === true }
+                        : { name: typeof input?.name === 'string' ? input.name : undefined });
                 return { ok: true, result };
             } catch (error) { return { ok: false, error: error.message, code: error.code || 'proxy_unavailable' }; }
         });
@@ -120,8 +122,9 @@ else {
             const health = await service.localCall(directory, '/health');
             const host = shareHost(health, target);
             const stream = streaming === true;
-            if (action === 'preview') return curlCommand(current, '', { masked: true, host, stream });
-            clipboard.writeText(curlCommand(current, '', { host, stream }));
+            const curlState = { ...current, selected_provider: health.selected_provider };
+            if (action === 'preview') return curlCommand(curlState, '', { masked: true, host, stream });
+            clipboard.writeText(curlCommand(curlState, '', { host, stream }));
             return true;
         });
         createWindow();

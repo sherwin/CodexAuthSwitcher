@@ -10,7 +10,7 @@ import { pipeline } from 'node:stream/promises';
 import { fetch as undiciFetch, ProxyAgent, Agent } from 'undici';
 import { defaultDirectory, initialize, readJSON, writeJSON, locked, accountPath, provider,
     codexDirectory, ProxyError } from './storage.mjs';
-import { Credentials, upstream, isDeepSeek, claims, responseError, syncActive } from './credentials.mjs';
+import { Credentials, upstream, isDeepSeek, deepSeekSettings, claims, responseError, syncActive } from './credentials.mjs';
 import { configure, configureAuthFile, unconfigure, restore, inspectConfiguration } from './config.mjs';
 import { isLoopback, isPrivateAddress, lanAddresses } from './network.mjs';
 import { collectResponse } from './responses.mjs';
@@ -157,10 +157,13 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             const state = await readJSON(statePath);
             if (url.search) throw new ProxyError('Query parameters are unsupported.', 'unsupported_route', 404);
             if (url.pathname === '/health' && request.method === 'GET') {
+                const selected = state.selected_file
+                    ? await readJSON(accountPath(state, state.selected_file)).catch(() => null) : null;
                 const configuration = await inspectConfiguration(state, path.join(codexHome, 'config.toml'));
                 const verified = state.mode === 'key' && configuration.matches &&
                     codexConnection?.fingerprint === configuration.fingerprint;
                 sendJSON(response, 200, { service: provider, selected_file: state.selected_file || null,
+                    selected_provider: isDeepSeek(selected) ? 'deepseek' : 'openai',
                     enabled: state.enabled, mode: state.mode || (state.enabled ? 'key' : 'unconfigured'),
                     proxy_running: true, codex_mode: state.mode || (state.enabled ? 'key' : 'unconfigured'),
                     restore_available: Boolean(state.config_backup && state.config_path && state.installed_config_hash),
@@ -179,7 +182,13 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                     if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
                     const record = await readJSON(accountPath(state, entry.name)).catch(() => ({}));
                     const stat = await fs.stat(accountPath(state, entry.name));
+                    let base;
+                    if (isDeepSeek(record)) {
+                        try { base = deepSeekSettings(record).base_url; } catch { base = null; }
+                    }
                     accounts.push({ name: entry.name, modifiedAt: stat.mtime.toISOString(),
+                        provider: isDeepSeek(record) ? 'deepseek' : 'openai',
+                        ...(isDeepSeek(record) ? { base_url: base } : {}),
                         tokenExpiresAt: claims(record.tokens?.access_token || '').exp || null,
                         active: entry.name === state.selected_file });
                 }
@@ -204,12 +213,43 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             if (url.pathname.startsWith('/admin/') && request.method === 'POST') {
                 const input = await bodyJSON(request);
                 name = input.name;
-                if (url.pathname === '/admin/select') {
-                    await selectedRecord(name);
-                    // Validate account access before committing the global route.
-                    await usage(name);
+                if (url.pathname === '/admin/deepseek') {
                     await locked(path.join(directory, 'state.mutex'), async () => {
                         const latest = await readJSON(statePath);
+                        const file = accountPath(latest, name);
+                        let previous;
+                        try { previous = await readJSON(file); }
+                        catch (error) { if (error.code !== 'ENOENT') throw error; }
+                        if (input.edit === true) {
+                            if (!previous || !isDeepSeek(previous))
+                                throw new ProxyError('只能修改已有的 DeepSeek 账号。', 'invalid_account', 409);
+                        } else if (previous) throw new ProxyError('同名账号已存在，请换一个名称。', 'account_exists', 409);
+                        const settings = deepSeekSettings({ base_url: input.base_url,
+                            api_key: input.edit === true && input.api_key === ''
+                                ? previous.DEEPSEEK_API_KEY ?? previous.api_key : input.api_key });
+                        await writeJSON(file, { provider: 'deepseek', base_url: settings.base_url,
+                            DEEPSEEK_API_KEY: settings.api_key });
+                    });
+                    sendJSON(response, 200, { ok: true, name });
+                    return;
+                }
+                if (url.pathname === '/admin/select') {
+                    const selected = await selectedRecord(name);
+                    // Validate account access before committing the global route.
+                    if (isDeepSeek(selected)) {
+                        const target = upstream(selected, 'models');
+                        const check = await fetchUpstream(target.url, { headers: { Authorization: `Bearer ${target.token}` },
+                            redirect: 'manual', signal: AbortSignal.timeout(20000) });
+                        if (!check.ok) throw await responseError(check);
+                        await check.body?.cancel();
+                    } else await usage(name);
+                    await locked(path.join(directory, 'state.mutex'), async () => {
+                        const latest = await readJSON(statePath);
+                        if (isDeepSeek(selected)) {
+                            const current = await readJSON(accountPath(latest, name));
+                            if (latest.auth_directory !== state.auth_directory || JSON.stringify(current) !== JSON.stringify(selected))
+                                throw new ProxyError('账号配置已变化，请重新切换。', 'account_changed', 409);
+                        }
                         if (latest.mode === 'auth_file' && !latest.codex_auth_file) latest.codex_auth_file = latest.selected_file;
                         latest.selected_file = name;
                         await writeJSON(statePath, latest);
@@ -268,8 +308,8 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             if (request.method === 'POST') {
                 const input = await bodyJSON(request);
                 if (input.previous_response_id) throw new ProxyError('Send full conversation input when using account switching.', 'unsupported_continuation', 400);
-                if (route[1].startsWith('responses') && isDeepSeek(record)) {
-                    throw new ProxyError('DeepSeek accounts support /v1/chat/completions, not Responses.', 'unsupported_wire_api', 400);
+                if (route[1] === 'responses/compact' && isDeepSeek(record)) {
+                    throw new ProxyError('DeepSeek 未提供 Responses compact 接口。', 'unsupported_wire_api', 400);
                 }
                 if (route[1] === 'responses') {
                     if (input.stream != null && typeof input.stream !== 'boolean') {

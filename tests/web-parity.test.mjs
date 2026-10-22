@@ -61,4 +61,11 @@ test('web uses the original renderer and API logic for accounts, modes, statisti
     await json('/api/select', { name: 'alpha.json' });
     assert.equal((await json('/api/runtime/proxy', {})).runtime.pid, 103);
     assert.equal((await json('/api/status')).codex_mode, 'key');
+    await json('/api/deepseek', { name: 'deepseek.json', base_url: 'https://example.com/v1', api_key: 'web-test-key' });
+    const configured = (await json('/api/accounts')).accounts.find(item => item.name === 'deepseek.json');
+    assert.equal(configured.provider, 'deepseek');
+    assert.equal(configured.base_url, 'https://example.com/v1');
+    assert.ok(!JSON.stringify(configured).includes('web-test-key'));
+    await json('/api/deepseek', { name: 'deepseek.json', base_url: 'https://api.deepseek.com', api_key: '', edit: true });
+    assert.equal((await readJSON(path.join(f.authDirectory, 'deepseek.json'))).DEEPSEEK_API_KEY, 'web-test-key');
 });
