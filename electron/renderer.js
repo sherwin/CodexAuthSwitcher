@@ -26,6 +26,19 @@ function renderCapacityRetrySettings(settings = health?.capacity_retry || { enab
     document.querySelector('#capacity-retry-min').value = settings.min_seconds;
     document.querySelector('#capacity-retry-max').value = settings.max_seconds;
 }
+function renderPrioritySettings(data) {
+    document.querySelector('#priority-enabled').checked = data.priority?.enabled !== false;
+    const list = document.querySelector('#priority-list'); list.replaceChildren();
+    for (const [index, item] of (data.entries || []).entries()) {
+        const row = element('div', 'priority-row');
+        const check = document.createElement('input'); check.type = 'checkbox'; check.checked = item.enabled; check.dataset.name = item.name;
+        const label = element('label', '', item.name); label.prepend(check); row.append(label);
+        const up = element('button', '', '↑'); up.type = 'button'; up.disabled = index === 0; up.onclick = () => { const prev = row.previousElementSibling; if (prev) list.insertBefore(row, prev); };
+        const down = element('button', '', '↓'); down.type = 'button'; down.disabled = index === data.entries.length - 1; down.onclick = () => { const next = row.nextElementSibling; if (next) list.insertBefore(next, row); };
+        row.append(up, down); list.append(row);
+    }
+}
+async function openPrioritySettings() { const result = await call('priority'); renderPrioritySettings(result); document.querySelector('#priority-dialog').showModal(); }
 function renderRequestLogs() {
     const target = document.querySelector('#request-logs-list'); target.replaceChildren();
     document.querySelector('#request-logs-page-label').textContent = `第 ${requestLogsPage} / ${requestLogsTotalPages} 页 · 共 ${requestLogsTotal} 条`;
@@ -538,6 +551,8 @@ document.querySelector('#custom-form').addEventListener('submit', async event =>
     finally { button.disabled = false; }
 });
 document.querySelector('#open-settings').addEventListener('click', async () => { const result = await call('settings'); renderCapacityRetrySettings(result.capacity_retry); document.querySelector('#settings-dialog').showModal(); });
+document.querySelector('#open-priority').addEventListener('click', () => openPrioritySettings().catch(error => message(error.message, true)));
+document.querySelector('#save-priority').addEventListener('click', async event => { event.preventDefault(); const rows = [...document.querySelectorAll('#priority-list .priority-row')]; const order = rows.map(row => row.querySelector('input').dataset.name); const disabled = rows.filter(row => !row.querySelector('input').checked).map(row => row.querySelector('input').dataset.name); try { await call('priority', { priority: { enabled: document.querySelector('#priority-enabled').checked, order, disabled } }); document.querySelector('#priority-dialog').close(); message('自动切换队列已保存。'); await updateHealth(); } catch (error) { document.querySelector('#priority-status').textContent = error.message; } });
 document.querySelector('#save-settings').addEventListener('click', async event => { event.preventDefault(); const status = document.querySelector('#settings-status'); try { const min = Number(document.querySelector('#capacity-retry-min').value), max = Number(document.querySelector('#capacity-retry-max').value); const result = await call('settings', { capacity_retry: { enabled: document.querySelector('#capacity-retry-enabled').checked, min_seconds: min, max_seconds: max } }); renderCapacityRetrySettings(result.capacity_retry); document.querySelector('#settings-dialog').close(); message('重试设置已保存。'); } catch (error) { status.textContent = error.message; } });
 document.querySelector('#open-request-logs').addEventListener('click', () => { document.querySelector('#home-page').hidden = true; document.querySelector('#request-logs-page').hidden = false; refreshRequestLogs(1); });
 document.querySelector('#back-from-logs').addEventListener('click', () => { document.querySelector('#request-logs-page').hidden = true; document.querySelector('#home-page').hidden = false; });

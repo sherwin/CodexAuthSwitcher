@@ -17,6 +17,13 @@ export function normalizeCapacityRetrySettings(value) {
     const max = Math.min(60, Math.max(min, Number(source.max_seconds) || 5));
     return { enabled: source.enabled !== false, min_seconds: min, max_seconds: max };
 }
+export function normalizePrioritySettings(value) {
+    const source = value && typeof value === 'object' ? value : {};
+    return { enabled: source.enabled !== false, max_errors: 10,
+        order: Array.isArray(source.order) ? [...new Set(source.order.filter(item => typeof item === 'string'))] : [],
+        disabled: Array.isArray(source.disabled) ? [...new Set(source.disabled.filter(item => typeof item === 'string'))] : [],
+        include_custom: source.include_custom === true };
+}
 
 export class ProxyError extends Error {
     constructor(message, code = 'proxy_error', status = 503) {
@@ -74,9 +81,10 @@ export async function initialize(directory, selected) {
         try { state = await readJSON(file); } catch (error) {
             if (error.code !== 'ENOENT') throw error;
             state = { key: randomBytes(32).toString('base64url'), port: 18888, lan_enabled: false, enabled: false,
-                auth_directory: defaultAuthDirectory, capacity_retry: { ...defaultCapacityRetrySettings } };
+                auth_directory: defaultAuthDirectory, capacity_retry: { ...defaultCapacityRetrySettings }, priority: normalizePrioritySettings() };
         }
         state.capacity_retry = normalizeCapacityRetrySettings(state.capacity_retry);
+        state.priority = normalizePrioritySettings(state.priority);
         await fs.mkdir(state.auth_directory, { recursive: true, mode: 0o700 });
         if (selected) {
             accountPath(state, path.basename(selected));

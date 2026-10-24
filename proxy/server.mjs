@@ -9,7 +9,7 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fetch as undiciFetch, ProxyAgent, Agent } from 'undici';
 import { defaultDirectory, initialize, readJSON, writeJSON, locked, accountPath, provider,
-    codexDirectory, ProxyError, normalizeCapacityRetrySettings } from './storage.mjs';
+    codexDirectory, ProxyError, normalizeCapacityRetrySettings, normalizePrioritySettings } from './storage.mjs';
 import { Credentials, upstream, isDeepSeek, deepSeekSettings, claims, responseError, syncActive } from './credentials.mjs';
 import { configure, configureCustom, configureAuthFile, unconfigure, restore, inspectConfiguration } from './config.mjs';
 import { isLoopback, isPrivateAddress, lanAddresses } from './network.mjs';
@@ -97,6 +97,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
     let codexConnection = null;
     let configurationGeneration = 0;
     const notified = new Map();
+    const recentErrors = new Map();
 
     async function report(error, name) {
         metrics.last_error = { code: error.code || 'upstream_unavailable', account: name || null, at: new Date().toISOString() };
@@ -118,6 +119,19 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
         const state = await readJSON(statePath);
         if (state.mode === 'auth_file') await syncActive(state.auth_directory, codexHome);
         return credentials.get(accountPath(state, name));
+    }
+    async function priorityEntries(state) {
+        const files = (await fs.readdir(state.auth_directory, { withFileTypes: true }))
+            .filter(entry => entry.isFile() && entry.name.endsWith('.json')).map(entry => entry.name);
+        const priority = normalizePrioritySettings(state.priority);
+        const order = [...priority.order.filter(name => files.includes(name)), ...files.filter(name => !priority.order.includes(name)).sort()];
+        return order.map(name => ({ name, enabled: !priority.disabled.includes(name), active: name === state.selected_file }));
+    }
+    async function selectNext(state, current) {
+        const entries = await priorityEntries(state);
+        const enabled = entries.filter(item => item.enabled);
+        const index = enabled.findIndex(item => item.name === current);
+        return enabled[(index + 1 + enabled.length) % enabled.length]?.name || null;
     }
 
     async function usage(name) {
@@ -196,6 +210,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                     codex_auth_file: state.codex_auth_file || (state.mode === 'auth_file' ? state.selected_file : null),
                     custom_base_url: state.mode === 'custom' ? state.custom_base_url : null,
                     capacity_retry: normalizeCapacityRetrySettings(state.capacity_retry),
+                    priority: normalizePrioritySettings(state.priority),
                     codex_connection: { status: state.mode !== 'key' ? 'not_managed' :
                         !configuration.matches ? 'config_mismatch' : verified ? 'verified' : 'pending',
                         config_matches: configuration.matches, provider: configuration.provider || null,
@@ -220,7 +235,9 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                         tokenExpiresAt: claims(record.tokens?.access_token || '').exp || null,
                         active: entry.name === state.selected_file });
                 }
-                sendJSON(response, 200, { accounts: accounts.sort((a, b) => a.name.localeCompare(b.name)),
+                const order = (await priorityEntries(state)).map(item => item.name);
+                accounts.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+                sendJSON(response, 200, { accounts,
                     authDirectory: state.auth_directory });
                 return;
             }
@@ -250,6 +267,10 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             if (url.pathname === '/admin/settings' && request.method === 'GET') {
                 sendJSON(response, 200, { capacity_retry: normalizeCapacityRetrySettings(state.capacity_retry) }); return;
             }
+            if (url.pathname === '/admin/priority' && request.method === 'GET') {
+                const entries = await priorityEntries(state);
+                sendJSON(response, 200, { priority: normalizePrioritySettings(state.priority), entries }); return;
+            }
             if (url.pathname.startsWith('/admin/') && request.method === 'POST') {
                 const input = await bodyJSON(request);
                 name = input.name;
@@ -263,6 +284,11 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                     const capacityRetry = normalizeCapacityRetrySettings(input.capacity_retry);
                     await locked(path.join(directory, 'state.mutex'), async () => { const latest = await readJSON(statePath); latest.capacity_retry = capacityRetry; await writeJSON(statePath, latest); });
                     sendJSON(response, 200, { ok: true, capacity_retry: capacityRetry }); return;
+                }
+                if (url.pathname === '/admin/priority') {
+                    const priority = normalizePrioritySettings(input.priority);
+                    await locked(path.join(directory, 'state.mutex'), async () => { const latest = await readJSON(statePath); latest.priority = priority; await writeJSON(statePath, latest); });
+                    sendJSON(response, 200, { ok: true, priority }); return;
                 }
                 if (url.pathname === '/admin/deepseek') {
                     await locked(path.join(directory, 'state.mutex'), async () => {
@@ -359,8 +385,19 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             if (!route || route[0] !== request.method) throw new ProxyError('Unsupported gateway route.', 'unsupported_route', 404);
             shouldRecord = route[1] !== 'models';
             name = state.selected_file;
-            const file = accountPath(state, name);
+            let file = accountPath(state, name);
             let record = await credentials.get(file);
+            const queue = (await priorityEntries(state)).filter(item => item.enabled).map(item => item.name);
+            let queueIndex = Math.max(0, queue.indexOf(name));
+            async function switchQueuedAccount() {
+                if (!normalizePrioritySettings(state.priority).enabled || queue.length < 2) return false;
+                queueIndex = (queueIndex + 1) % queue.length;
+                const next = queue[queueIndex];
+                if (!next || next === name) return false;
+                name = next; file = accountPath(state, name); record = await credentials.get(file);
+                await locked(path.join(directory, 'state.mutex'), async () => { const latest = await readJSON(statePath); latest.selected_file = name; await writeJSON(statePath, latest); });
+                return true;
+            }
             let body;
             let stream = false;
             let upstreamStream = false;
@@ -434,6 +471,10 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 if (capacityRetry.enabled && capacityRetries < maxCapacityRetries && await transientResponse(result)) {
                     capacityRetries++; await waitRetry(capacityRetry); attempt--; continue;
                 }
+                const errorKey = `${name}`;
+                if (!result.ok) recentErrors.set(errorKey, (recentErrors.get(errorKey) || 0) + 1); else recentErrors.delete(errorKey);
+                const exhausted = !result.ok && (recentErrors.get(errorKey) >= normalizePrioritySettings(state.priority).max_errors || await transientResponse(result));
+                if (exhausted && await switchQueuedAccount()) { capacityRetries = 0; attempt = -1; continue; }
                 if (result.status !== 401 || attempt !== 0 || record.OPENAI_API_KEY || isDeepSeek(record)) break;
                 const error = await responseError(result);
                 if (!retryableAuthCodes.has(error.code)) throw error;
