@@ -325,6 +325,13 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                     sendJSON(response, 200, { ok: true, base_url: String(input.base_url).replace(/\/$/, '') });
                     return;
                 }
+                if (url.pathname === '/admin/codex-api') {
+                    const account = await readJSON(accountPath(state, input.name));
+                    const settings = deepSeekSettings(account);
+                    await configureCustom(directory, settings.base_url, settings.api_key, path.join(codexHome, 'config.toml'), path.join(codexHome, 'auth.json'));
+                    configurationGeneration++; codexConnection = null;
+                    sendJSON(response, 200, { ok: true, base_url: settings.base_url }); return;
+                }
                 if (url.pathname === '/admin/select') {
                     const selected = await selectedRecord(name);
                     // Validate account access before committing the global route.

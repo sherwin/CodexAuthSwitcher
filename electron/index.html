@@ -11,7 +11,7 @@
   <div id="home-page">
   <header>
     <div><p class="eyebrow">LOCAL ACCOUNT GATEWAY</p><h1>Codex Auth Switcher</h1><p class="muted">本地代理与 Codex 连接配置，独立管理。</p></div>
-    <div class="actions"><button id="open-statistics" class="statistics-link" aria-label="查看日周月 Token 用量"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10m8 10V4m8 16v-7"/></svg>用量统计</button><button id="open-request-logs">请求记录</button><button id="open-priority">自动切换</button><button id="open-custom-codex">局域网 Base URL</button><button id="open-settings">设置</button><button id="refresh">刷新额度</button></div>
+    <div class="actions"><button id="open-statistics" class="statistics-link" aria-label="查看日周月 Token 用量"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10m8 10V4m8 16v-7"/></svg>用量统计</button><button id="open-request-logs">请求记录</button><button id="open-priority">自动切换</button><button id="open-settings">设置</button><button id="refresh">刷新额度</button></div>
   </header>
   <nav id="workspace-tabs" class="workspace-tabs" role="tablist" aria-label="配置管理">
     <button id="tab-proxy" role="tab" aria-selected="true" aria-controls="proxy-page" tabindex="0">本地代理</button>
@@ -46,21 +46,21 @@
     <span id="curl-copy-status" class="muted" role="status"></span>
   </details>
   </div>
-  <div class="list-heading"><h2>代理出口账号</h2><div class="actions"><button id="add-deepseek">添加 DeepSeek 账号</button><button id="directory" class="text-button">选择授权目录</button></div></div>
+  <div class="list-heading"><h2>代理出口账号</h2><div class="actions"><button id="add-deepseek">添加自定义 API 账号</button><button id="directory" class="text-button">选择授权目录</button></div></div>
   <p class="muted">切换只影响代理的新请求，不修改 Codex 直连授权；进行中的请求继续使用原账号。</p>
   <p id="directory-path" class="muted path"></p>
   <main id="accounts"><p class="muted">读取账号…</p></main>
   <dialog id="deepseek-dialog" class="account-dialog" aria-labelledby="deepseek-title">
     <form id="deepseek-form">
-      <h2 id="deepseek-title">添加 DeepSeek 账号</h2>
+      <h2 id="deepseek-title">添加自定义 API 账号</h2>
       <label>账号名称<input id="deepseek-name" type="text" required maxlength="100" placeholder="例如：DeepSeek 主账号"></label>
       <label>Base URL<input id="deepseek-url" type="url" required value="https://api.deepseek.com" autocomplete="off" spellcheck="false"></label>
-      <p class="muted">填写 API 根地址，例如 https://api.deepseek.com 或带 /v1 的兼容地址，不含 /chat/completions。</p>
+      <p class="muted">填写 OpenAI 兼容 API 根地址，例如 DeepSeek 或局域网 Codex Auth Switcher 地址，可带 /v1。</p>
       <label>API Key<input id="deepseek-key" type="password" required maxlength="4096" autocomplete="off" spellcheck="false"></label>
       <p id="deepseek-key-help" class="muted">Key 仅保存在当前授权目录，保存后不会显示。HTTP 地址会以明文传输 Key，请优先使用 HTTPS。</p>
-      <p class="muted">支持 Responses 和 Chat Completions。调用时请指定 DeepSeek 模型，例如 deepseek-flash；保存账号不会自动修改 Codex 的模型设置。</p>
+      <p class="muted">支持 Responses 和 Chat Completions。保存后可作为代理出口，也可应用为 Codex 的直连地址。</p>
       <p id="deepseek-status" class="card-status error" role="status"></p>
-      <div class="actions"><button id="cancel-deepseek" type="button">取消</button><button id="save-deepseek" class="primary" type="submit">保存账号</button></div>
+      <div class="actions"><button id="cancel-deepseek" type="button">取消</button><button id="save-deepseek" class="primary" type="submit">保存 API 账号</button></div>
     </form>
   </dialog>
   </section>
@@ -69,11 +69,10 @@
       <div class="list-heading"><h2 id="codex-title">Codex 连接配置</h2></div>
       <p class="notice" id="setup-note">读取 Codex 连接方式…</p>
       <div id="codex-modes" class="period-switch" role="group" aria-label="Codex 模式">
-        <button data-mode="unconfigured" aria-pressed="true">空</button><button data-mode="key" aria-pressed="false">本机代理</button><button data-mode="custom" aria-pressed="false">局域网地址</button><button data-mode="auth_file" aria-pressed="false">授权文件</button>
+        <button data-mode="unconfigured" aria-pressed="true">空</button><button data-mode="key" aria-pressed="false">本机代理</button><button data-mode="auth_file" aria-pressed="false">授权文件</button>
       </div>
       <div id="mode-empty" class="mode-content"><h3>空 · 不管理 Codex 配置</h3><p class="muted">首次默认选项。不清除、不改写 config.toml 或 auth.json；Codex 继续使用它自己的现有配置。本地代理仍独立运行。</p><button id="unconfigure">设为空（保留现有配置）</button></div>
       <div id="mode-key" class="mode-content" hidden><h3>Key · 连接本地代理</h3><p class="muted">自动配置 Base URL 和本地 Key，使用「本地代理」Tab 中的出口授权文件。</p><button id="configure" class="primary">应用 Key 模式</button></div>
-      <div id="mode-custom" class="mode-content" hidden><h3>局域网地址 · 连接其他 Codex Auth Switcher</h3><p class="muted">填写局域网代理的 Base URL 和 Key，Codex 会直接把请求发到该服务。地址示例：http://192.168.1.20:18888/v1。</p><form id="custom-form" class="custom-form"><label>Base URL<input id="custom-url" type="url" required placeholder="http://192.168.1.20:18888/v1" autocomplete="off" spellcheck="false"></label><label>Key<input id="custom-key" type="password" required maxlength="4096" autocomplete="off"></label><p id="custom-status" class="card-status error" role="status"></p><button id="save-custom" class="primary" type="submit">应用局域网地址</button></form></div>
       <div id="mode-auth-file" hidden><div class="list-heading codex-account-heading"><h3>Codex 授权文件</h3><button id="codex-directory" class="text-button">选择授权目录</button></div><p class="muted">点击卡片直接覆盖 Codex 授权文件，不刷新令牌、不校验额度，也不改变代理出口。应用后需重启 Codex；文件失效时仍需重新登录。</p><p id="codex-directory-path" class="muted path"></p><div id="codex-accounts"><p class="muted">读取账号…</p></div></div>
     </section>
   </section>
@@ -98,7 +97,7 @@
   </section>
   <div id="notification" class="notification" hidden><span id="message" role="status" aria-live="polite"></span><button id="dismiss-notification" type="button" aria-label="关闭提示">×</button></div>
   <dialog id="settings-dialog"><form method="dialog" id="settings-form"><h2>代理设置</h2><p class="muted">容量、502 Bad Gateway 和流式网络断开会在内部随机等待后重试。</p><label><input id="capacity-retry-enabled" type="checkbox"> 开启自动重试</label><div class="settings-range"><label>最短秒<input id="capacity-retry-min" type="number" min="0.1" max="60" step="0.1"></label><label>最长秒<input id="capacity-retry-max" type="number" min="0.1" max="60" step="0.1"></label></div><p id="settings-status" class="muted"></p><div class="dialog-actions"><button value="cancel">取消</button><button id="save-settings" class="primary" value="default">保存设置</button></div></form></dialog>
-  <dialog id="priority-dialog"><form method="dialog" id="priority-form"><h2>出口自动切换队列</h2><p class="muted">请求遇到额度上限或同一账号短时间累计 10 次错误时，会按此顺序切换。整轮账号都失败后才返回错误。</p><label><input id="priority-enabled" type="checkbox"> 启用自动切换</label><label><input id="priority-include-custom" type="checkbox"> 把局域网 Base URL 加入队列</label><div id="priority-list" class="priority-list"></div><p id="priority-status" class="muted"></p><div class="dialog-actions"><button value="cancel">取消</button><button id="save-priority" class="primary" value="default">保存队列</button></div></form></dialog>
+  <dialog id="priority-dialog"><form method="dialog" id="priority-form"><h2>出口自动切换队列</h2><p class="muted">请求遇到额度上限或同一账号短时间累计 10 次错误时，会按此顺序切换。整轮账号都失败后才返回错误。</p><label><input id="priority-enabled" type="checkbox"> 启用自动切换</label><div id="priority-list" class="priority-list"></div><p id="priority-status" class="muted"></p><div class="dialog-actions"><button value="cancel">取消</button><button id="save-priority" class="primary" value="default">保存队列</button></div></form></dialog>
   <script src="renderer.js"></script>
 </body>
 </html>

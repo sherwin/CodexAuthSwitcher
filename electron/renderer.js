@@ -28,7 +28,6 @@ function renderCapacityRetrySettings(settings = health?.capacity_retry || { enab
 }
 function renderPrioritySettings(data) {
     document.querySelector('#priority-enabled').checked = data.priority?.enabled !== false;
-    document.querySelector('#priority-include-custom').checked = data.priority?.include_custom === true;
     const list = document.querySelector('#priority-list'); list.replaceChildren();
     for (const [index, item] of (data.entries || []).entries()) {
         const row = element('div', 'priority-row');
@@ -54,14 +53,19 @@ function openDeepSeek(item) {
     const form = document.querySelector('#deepseek-form');
     form.reset();
     editingDeepSeek = Boolean(item);
-    document.querySelector('#deepseek-title').textContent = item ? '编辑 DeepSeek 账号' : '添加 DeepSeek 账号';
+    document.querySelector('#deepseek-title').textContent = item ? '编辑自定义 API 账号' : '添加自定义 API 账号';
     document.querySelector('#deepseek-name').value = item?.name || '';
     document.querySelector('#deepseek-name').disabled = Boolean(item);
     document.querySelector('#deepseek-url').value = item?.base_url || 'https://api.deepseek.com';
     document.querySelector('#deepseek-key').required = !item;
-    document.querySelector('#deepseek-key').placeholder = item ? '留空保留已有 Key' : '输入 DeepSeek API Key';
+    document.querySelector('#deepseek-key').placeholder = item ? '留空保留已有 Key' : '输入 API Key';
     document.querySelector('#deepseek-status').textContent = '';
     document.querySelector('#deepseek-dialog').showModal();
+}
+async function applyApiAccountToCodex(item) {
+    if (!confirm(`将 ${item.name} 的 Base URL 和 Key 应用为 Codex 直连地址？`)) return;
+    try { await call('codexApi', { name: item.name }); await updateHealth(); message('已将该 API 账号应用为 Codex 直连地址，请重启 Codex。'); }
+    catch (error) { message(error.message, true); }
 }
 
 document.querySelector('#add-deepseek').addEventListener('click', () => openDeepSeek());
@@ -81,7 +85,7 @@ document.querySelector('#deepseek-form').addEventListener('submit', async event 
             api_key: document.querySelector('#deepseek-key').value, edit: editingDeepSeek });
         document.querySelector('#deepseek-dialog').close();
         await refresh();
-        message('DeepSeek 账号已保存，可在账号卡片中切换为代理出口。');
+        message('自定义 API 账号已保存，可作为代理出口或 Codex 直连地址。');
     } catch (error) { document.querySelector('#deepseek-status').textContent = error.message; }
     finally {
         savingDeepSeek = false;
@@ -91,11 +95,10 @@ document.querySelector('#deepseek-form').addEventListener('submit', async event 
 });
 
 function renderCodexMode() {
-    const mode = codexMode || 'unconfigured';
+    const mode = codexMode === 'custom' ? 'key' : (codexMode || 'unconfigured');
     for (const button of document.querySelectorAll('#codex-modes button')) button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
     document.querySelector('#mode-empty').hidden = mode !== 'unconfigured';
     document.querySelector('#mode-key').hidden = mode !== 'key';
-    document.querySelector('#mode-custom').hidden = mode !== 'custom';
     document.querySelector('#mode-auth-file').hidden = mode !== 'auth_file';
     document.querySelector('#unconfigure').disabled = busy || health?.codex_mode === 'unconfigured';
 }
@@ -316,14 +319,17 @@ function renderAccounts(target, direct) {
         actions.append(refreshButton, select);
         header.append(label, actions);
         if (item.provider === 'deepseek') {
-            label.append(element('span', 'plan', 'DeepSeek · API Key'));
+            label.append(element('span', 'plan', '自定义 API · Key'));
             const edit = element('button', '', '编辑配置');
             edit.disabled = busy;
             edit.addEventListener('click', () => openDeepSeek(item));
-            actions.replaceChildren(edit, select);
+            const codex = element('button', '', '设为 Codex 地址');
+            codex.disabled = busy;
+            codex.addEventListener('click', () => applyApiAccountToCodex(item));
+            actions.replaceChildren(edit, codex, select);
             card.append(header, element('p', 'muted path', item.base_url || 'Base URL 配置无效'),
                 element('p', 'card-status', 'Responses / Chat Completions · API Key 已保存'),
-                element('p', 'card-status', '调用时请选择 DeepSeek 模型 · 不提供 ChatGPT 订阅额度'));
+                element('p', 'card-status', '可作为代理出口，也可设为 Codex 直连地址'));
             cards.push(card);
             continue;
         }
@@ -540,25 +546,9 @@ document.querySelector('#configure').addEventListener('click', async () => {
     } catch (error) { message(error.message, true); }
     finally { busy = false; await updateHealth(); render(); }
 });
-document.querySelector('#custom-form').addEventListener('submit', async event => {
-    event.preventDefault();
-    const button = document.querySelector('#save-custom');
-    const status = document.querySelector('#custom-status');
-    button.disabled = true;
-    status.textContent = '正在写入 Codex 配置…';
-    try {
-        await call('custom', { base_url: document.querySelector('#custom-url').value.trim(), api_key: document.querySelector('#custom-key').value });
-        document.querySelector('#custom-key').value = '';
-        await updateHealth();
-        status.textContent = '已应用。请重启 Codex；后续请求会发送到该局域网服务。';
-        message('局域网 Base URL 已应用到 Codex 配置。');
-    } catch (error) { status.textContent = error.message; }
-    finally { button.disabled = false; }
-});
 document.querySelector('#open-settings').addEventListener('click', async () => { const result = await call('settings'); renderCapacityRetrySettings(result.capacity_retry); document.querySelector('#settings-dialog').showModal(); });
 document.querySelector('#open-priority').addEventListener('click', () => openPrioritySettings().catch(error => message(error.message, true)));
-document.querySelector('#open-custom-codex').addEventListener('click', () => { selectWorkspace('codex'); codexMode = 'custom'; renderCodexMode(); document.querySelector('#custom-url').focus(); });
-document.querySelector('#save-priority').addEventListener('click', async event => { event.preventDefault(); const rows = [...document.querySelectorAll('#priority-list .priority-row')]; const order = rows.map(row => row.querySelector('input').dataset.name); const disabled = rows.filter(row => !row.querySelector('input').checked).map(row => row.querySelector('input').dataset.name); try { await call('priority', { priority: { enabled: document.querySelector('#priority-enabled').checked, include_custom: document.querySelector('#priority-include-custom').checked, order, disabled } }); document.querySelector('#priority-dialog').close(); message('自动切换队列已保存。'); await updateHealth(); } catch (error) { document.querySelector('#priority-status').textContent = error.message; } });
+document.querySelector('#save-priority').addEventListener('click', async event => { event.preventDefault(); const rows = [...document.querySelectorAll('#priority-list .priority-row')]; const order = rows.map(row => row.querySelector('input').dataset.name); const disabled = rows.filter(row => !row.querySelector('input').checked).map(row => row.querySelector('input').dataset.name); try { await call('priority', { priority: { enabled: document.querySelector('#priority-enabled').checked, order, disabled } }); document.querySelector('#priority-dialog').close(); message('自动切换队列已保存。'); await updateHealth(); } catch (error) { document.querySelector('#priority-status').textContent = error.message; } });
 document.querySelector('#save-settings').addEventListener('click', async event => { event.preventDefault(); const status = document.querySelector('#settings-status'); try { const min = Number(document.querySelector('#capacity-retry-min').value), max = Number(document.querySelector('#capacity-retry-max').value); const result = await call('settings', { capacity_retry: { enabled: document.querySelector('#capacity-retry-enabled').checked, min_seconds: min, max_seconds: max } }); renderCapacityRetrySettings(result.capacity_retry); document.querySelector('#settings-dialog').close(); message('重试设置已保存。'); } catch (error) { status.textContent = error.message; } });
 document.querySelector('#open-request-logs').addEventListener('click', () => { document.querySelector('#home-page').hidden = true; document.querySelector('#request-logs-page').hidden = false; refreshRequestLogs(1); });
 document.querySelector('#back-from-logs').addEventListener('click', () => { document.querySelector('#request-logs-page').hidden = true; document.querySelector('#home-page').hidden = false; });

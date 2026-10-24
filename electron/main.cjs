@@ -63,12 +63,12 @@ else {
         ipcMain.handle('proxy-call', async (_event, action, input) => {
             if (networkBusy && action !== 'status') return { ok: false, error: '网络设置正在更新，请稍后重试。' };
             const allowed = { status: '/health', accounts: '/admin/accounts', statistics: '/admin/statistics', requestLogs: '/admin/request-logs', requestLog: '/admin/request-logs', settings: '/admin/settings', priority: '/admin/priority', usage: '/admin/usage',
-                select: '/admin/select', deepseek: '/admin/deepseek', configure: '/admin/configure', custom: '/admin/custom', authFile: '/admin/auth-file', unconfigure: '/admin/unconfigure' };
+                select: '/admin/select', deepseek: '/admin/deepseek', codexApi: '/admin/codex-api', configure: '/admin/configure', authFile: '/admin/auth-file', unconfigure: '/admin/unconfigure' };
             if (!Object.hasOwn(allowed, action)) throw new Error('Unsupported action.');
             try {
                 const route = action === 'requestLog' ? `${allowed[action]}/${Number(input?.id) || 0}` : allowed[action];
                 const result = await service.localCall(directory, route,
-                    ['status', 'accounts', 'statistics', 'requestLogs', 'requestLog', 'priority'].includes(action) && input === undefined ? undefined : action === 'deepseek' || action === 'custom'
+                    ['status', 'accounts', 'statistics', 'requestLogs', 'requestLog', 'priority'].includes(action) && input === undefined ? undefined : action === 'deepseek'
                         ? { name: input?.name, base_url: input?.base_url, api_key: input?.api_key, edit: input?.edit === true }
                         : action === 'settings' || action === 'priority' || action === 'requestLogs' ? input : action === 'requestLog' ? undefined
                         : { name: typeof input?.name === 'string' ? input.name : undefined });
