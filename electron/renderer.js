@@ -137,9 +137,13 @@ function renderStatistics() {
     if (!statisticsData) return;
     const period = statisticsPeriod;
     for (const button of document.querySelectorAll('#statistics-period button')) button.setAttribute('aria-pressed', String(button.dataset.period === period));
-    const data = statisticsData.periods[period];
+    const data = statisticsData.periods?.[period] || statisticsData;
+    if (!data || !Array.isArray(data.accounts) || !data.totals) {
+        document.querySelector('#statistics-status').textContent = '统计数据格式不完整，请刷新代理后重试。';
+        return;
+    }
     const files = statisticsData.files || [];
-    const historical = new Map(Object.values(statisticsData.periods).flatMap(item => item.accounts).map(item => [item.id, item]));
+    const historical = new Map(Object.values(statisticsData.periods || { day: data }).flatMap(item => item.accounts || []).map(item => [item.id, item]));
     const available = new Map(files.map(file => ['file:' + file.name, file]));
     for (const account of historical.values()) {
         if (!files.some(file => file.id === account.id)) available.set('history:' + account.id, { ...account, name: account.name + '（历史）' });
