@@ -362,6 +362,8 @@ function renderAccounts(target, direct) {
     const disabledZone = element('div', 'priority-inline-zone');
     enabledZone.append(element('h3', '', '参与自动切换')); disabledZone.append(element('h3', '', '不参与自动切换'));
     const enabledDrop = element('div', 'priority-dropzone'); const disabledDrop = element('div', 'priority-dropzone');
+    enabledDrop.dataset.emptyHint = '暂无账号，拖动账号到这里以参与自动切换。';
+    disabledDrop.dataset.emptyHint = '暂无账号，拖动账号到这里以退出自动切换。';
     enabledZone.append(enabledDrop); disabledZone.append(disabledDrop);
     for (const card of cards) (enabledNames.has(card.dataset.name) ? enabledDrop : disabledDrop).append(card);
     const wire = (zone, other) => {

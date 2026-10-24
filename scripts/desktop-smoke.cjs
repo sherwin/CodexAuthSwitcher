@@ -66,6 +66,11 @@ app.on('browser-window-created', (_event, window) => {
                 if (!account || account.base_url !== 'https://example.com/v1') throw Error('Desktop did not save DeepSeek fields');
                 if (JSON.stringify(list).includes('offline-deepseek-key')) throw Error('Saved key leaked to renderer');
                 if (!document.querySelector('#accounts').textContent.includes('编辑配置')) throw Error('DeepSeek card missing');
+                const zones = document.querySelectorAll('#accounts .priority-dropzone');
+                if (zones.length !== 2 || zones[1].children.length) throw Error('Expected an empty excluded account group');
+                const placeholder = getComputedStyle(zones[1], '::before');
+                if (!placeholder.content.includes('退出自动切换') || zones[1].getBoundingClientRect().height < 96)
+                    throw Error('Empty account group needs a visible drop placeholder');
                 if (document.querySelector('#codex-accounts').textContent.includes('DeepSeek smoke')) throw Error('DeepSeek listed for Codex auth-file');
                 document.querySelector('#accounts .actions button').click();
                 if (document.querySelector('#deepseek-key').value || document.querySelector('#deepseek-key').required)
@@ -80,6 +85,10 @@ app.on('browser-window-created', (_event, window) => {
                 if (document.querySelector('#deepseek-dialog').open) throw Error('DeepSeek edit failed');
                 if (document.querySelector('#deepseek-key').value) throw Error('Closed form retained API Key');
             })()`);
+            if (process.env.DESKTOP_SMOKE_SCREENSHOT) {
+                const image = await window.webContents.capturePage();
+                fs.writeFileSync(process.env.DESKTOP_SMOKE_SCREENSHOT, image.toPNG());
+            }
             const account = JSON.parse(fs.readFileSync(path.join(process.env.AUTH_SWITCHER_AUTH_DIR, 'DeepSeek smoke.json')));
             if (account.DEEPSEEK_API_KEY !== 'offline-deepseek-key' || account.base_url !== 'https://api.deepseek.com')
                 throw Error('Desktop edit did not preserve the saved Key');

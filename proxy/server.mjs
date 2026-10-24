@@ -28,6 +28,13 @@ async function transientResponse(response) {
     try { const body = await response.clone().text(); return /selected\s+model\s+is\s+at\s+capacity/i.test(body) || (response.status === 502 && /bad\s+gateway|unknown\s+error/i.test(body)); }
     catch { return false; }
 }
+async function quotaExhausted(response) {
+    if (!response || response.ok || response.status !== 429) return false;
+    try {
+        const body = await response.clone().text();
+        return /usage_limit_reached|insufficient_quota|usage limit has been reached/i.test(body);
+    } catch { return false; }
+}
 async function waitRetry(settings) { await new Promise(resolve => setTimeout(resolve, Math.round((settings.min_seconds + Math.random() * (settings.max_seconds - settings.min_seconds)) * 1000))); }
 async function bufferStream(body) {
     const chunks = []; let size = 0;
@@ -403,12 +410,17 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             let file = accountPath(state, name);
             let record = await credentials.get(file);
             const queue = (await priorityEntries(state)).filter(item => item.enabled).map(item => item.name);
-            let queueIndex = Math.max(0, queue.indexOf(name));
+            let queueIndex = queue.indexOf(name);
+            const triedAccounts = new Set([name]);
             async function switchQueuedAccount() {
-                if (!normalizePrioritySettings(state.priority).enabled || queue.length < 2) return false;
-                queueIndex = (queueIndex + 1) % queue.length;
-                const next = queue[queueIndex];
-                if (!next || next === name) return false;
+                if (!normalizePrioritySettings(state.priority).enabled || !queue.length) return false;
+                let next;
+                for (let count = 0; count < queue.length; count++) {
+                    queueIndex = (queueIndex + 1) % queue.length;
+                    if (!triedAccounts.has(queue[queueIndex])) { next = queue[queueIndex]; break; }
+                }
+                if (!next) return false;
+                triedAccounts.add(next);
                 name = next;
                 if (name === '__custom__') { const customAuth = await readJSON(path.join(codexHome, 'auth.json')); record = { provider: 'custom', base_url: state.custom_base_url, api_key: customAuth.OPENAI_API_KEY }; }
                 else { file = accountPath(state, name); record = await credentials.get(file); }
@@ -494,8 +506,8 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 }
                 const errorKey = `${name}`;
                 if (!result.ok) { const previous = recentErrors.get(errorKey); const now = Date.now(); const count = previous && now - previous.at < 60000 ? previous.count + 1 : 1; recentErrors.set(errorKey, { count, at: now }); } else recentErrors.delete(errorKey);
-                const exhausted = !result.ok && (recentErrors.get(errorKey)?.count >= normalizePrioritySettings(state.priority).max_errors || await transientResponse(result));
-                if (exhausted && await switchQueuedAccount()) { capacityRetries = 0; attempt = -1; continue; }
+                const exhausted = !result.ok && (await quotaExhausted(result) || recentErrors.get(errorKey)?.count >= normalizePrioritySettings(state.priority).max_errors || await transientResponse(result));
+                if (exhausted && await switchQueuedAccount()) { statisticsAccount = usageAccount(name, record); capacityRetries = 0; attempt = -1; continue; }
                 if (result.status !== 401 || attempt !== 0 || record.OPENAI_API_KEY || isDeepSeek(record)) break;
                 const error = await responseError(result);
                 if (!retryableAuthCodes.has(error.code)) throw error;
