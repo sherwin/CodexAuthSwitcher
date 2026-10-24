@@ -24,7 +24,7 @@
       <p id="gateway-detail" class="muted">127.0.0.1:18888 · 固定本地密钥 · 流式转发</p>
     </div>
   </section>
-  <section id="request-logs-page" hidden aria-labelledby="request-logs-title"><header><div><button id="back-from-logs" class="text-button">← 返回账号</button><h1 id="request-logs-title">请求记录</h1><p class="muted">请求与返回体都会保存；点击记录查看详情。</p></div><button id="refresh-request-logs">刷新记录</button></header><div class="request-logs-layout"><div><div id="request-logs-list" class="request-logs-list"></div><div class="request-logs-pagination"><button id="request-logs-prev">上一页</button><span id="request-logs-page-label">第 1 / 1 页</span><input id="request-logs-page-input" type="number" min="1" value="1"><button id="request-logs-go">跳转</button><button id="request-logs-next">下一页</button></div></div><section id="request-log-detail" class="card request-log-detail"><div class="list-heading"><h2 id="request-log-detail-title">记录详情</h2><button id="close-request-log-detail" class="text-button">清空</button></div><p id="request-log-detail-meta" class="muted">从左侧选择一条记录。</p><h3>请求体</h3><pre id="request-log-request-body">(未选择记录)</pre><h3>返回体</h3><pre id="request-log-response-body">(未选择记录)</pre></section></div></section>
+  <section id="request-logs-page" hidden aria-labelledby="request-logs-title"><header><div><button id="back-from-logs" class="text-button">← 返回账号</button><h1 id="request-logs-title">请求记录</h1><p class="muted">请求与返回体都会保存；点击记录查看详情。</p></div><div class="actions"><select id="request-log-filter" aria-label="筛选错误类型"><option value="all">全部记录</option><option value="errors">仅失败</option><option value="capacity">容量错误</option><option value="network">网络/断开错误</option></select><button id="refresh-request-logs">刷新记录</button></div></header><div class="request-logs-layout"><div><div id="request-logs-list" class="request-logs-list"></div><div class="request-logs-pagination"><button id="request-logs-prev">上一页</button><span id="request-logs-page-label">第 1 / 1 页</span><input id="request-logs-page-input" type="number" min="1" value="1"><button id="request-logs-go">跳转</button><button id="request-logs-next">下一页</button></div></div><section id="request-log-detail" class="card request-log-detail"><div class="list-heading"><h2 id="request-log-detail-title">记录详情</h2><button id="close-request-log-detail" class="text-button">清空</button></div><p id="request-log-detail-meta" class="muted">从左侧选择一条记录。</p><h3>请求体</h3><pre id="request-log-request-body">(未选择记录)</pre><h3>返回体</h3><pre id="request-log-response-body">(未选择记录)</pre></section></div></section>
   <p class="muted proxy-note">独立运行 · 不受 Codex 认证模式影响</p>
   <section class="network-panel">
     <div class="network-controls">
@@ -102,4 +102,3 @@
   <script src="renderer.js"></script>
 </body>
 </html>
-

@@ -177,6 +177,10 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
         const requestStartedAt = new Date();
         let requestBody;
         let requestErrorCode;
+        let requestErrorMessage;
+        let requestModel;
+        let attemptErrors = [];
+        let attemptCount = 0;
         let shouldRecord = false;
         const responseChunks = [];
         const originalWrite = response.write.bind(response);
@@ -258,8 +262,9 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 return;
             }
             if (url.pathname === '/admin/request-logs' && request.method === 'GET') {
-                const pageSize = 10, total = requestLog.count(), totalPages = Math.max(1, Math.ceil(total / pageSize));
-                sendJSON(response, 200, { logs: requestLog.list(pageSize, 0), page: 1, pageSize, total, totalPages }); return;
+                const filter = new URL(request.url, 'http://127.0.0.1').searchParams.get('filter') || 'all';
+                const pageSize = 10, total = requestLog.count(filter), totalPages = Math.max(1, Math.ceil(total / pageSize));
+                sendJSON(response, 200, { logs: requestLog.list(pageSize, 0, filter), page: 1, pageSize, total, totalPages, filter }); return;
             }
             if (url.pathname.startsWith('/admin/request-logs/') && request.method === 'GET') {
                 const item = requestLog.get(Number(url.pathname.slice('/admin/request-logs/'.length)));
@@ -278,9 +283,10 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 name = input.name;
                 requestBody = input;
                 if (url.pathname === '/admin/request-logs') {
-                    const pageSize = 10, total = requestLog.count(), totalPages = Math.max(1, Math.ceil(total / pageSize));
+                    const filter = ['all', 'errors', 'capacity', 'network'].includes(input.filter) ? input.filter : 'all';
+                    const pageSize = 10, total = requestLog.count(filter), totalPages = Math.max(1, Math.ceil(total / pageSize));
                     const page = Math.min(totalPages, Math.max(1, Number(input.page) || 1));
-                    sendJSON(response, 200, { logs: requestLog.list(pageSize, (page - 1) * pageSize), page, pageSize, total, totalPages }); return;
+                    sendJSON(response, 200, { logs: requestLog.list(pageSize, (page - 1) * pageSize, filter), page, pageSize, total, totalPages, filter }); return;
                 }
                 if (url.pathname === '/admin/settings') {
                     const capacityRetry = normalizeCapacityRetrySettings(input.capacity_retry);
@@ -408,6 +414,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             if (request.method === 'POST') {
                 const input = await bodyJSON(request);
                 requestBody = input;
+                requestModel = typeof input.model === 'string' ? input.model : null;
                 if (input.previous_response_id) throw new ProxyError('Send full conversation input when using account switching.', 'unsupported_continuation', 400);
                 if (route[1] === 'responses/compact' && isDeepSeek(record)) {
                     throw new ProxyError('DeepSeek 未提供 Responses compact 接口。', 'unsupported_wire_api', 400);
@@ -460,6 +467,8 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 }
                 result = await fetchUpstream(target.url, { method: request.method, headers, body,
                     redirect: 'manual', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(600000)]) });
+                attemptCount++;
+                if (!result.ok) { const errorText = await result.clone().text().catch(() => ''); attemptErrors.push({ attempt: attemptCount, account: name, status: result.status, code: `upstream_http_${result.status}`, message: errorText.slice(0, 500) }); }
                 if (result.ok && upstreamStream && stream) {
                     try {
                         const buffered = await bufferStream(result.body);
@@ -468,6 +477,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                         }
                         result = new Response(buffered, { status: result.status, headers: result.headers });
                     } catch (error) {
+                        attemptErrors.push({ attempt: attemptCount, account: name, code: error.code || 'stream_error', message: error.message });
                         if (capacityRetry.enabled && capacityRetries < maxCapacityRetries && retryableStreamError(error)) { capacityRetries++; await waitRetry(capacityRetry); attempt--; continue; }
                         throw error;
                     }
@@ -490,6 +500,10 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                     .filter(item => item.slug).map(item => ({ id: item.slug, object: 'model', owned_by: 'openai' })) };
                 sendJSON(response, result.status, catalog);
                 return;
+            }
+            if (result && !result.ok) {
+                requestErrorCode = `upstream_http_${result.status}`;
+                requestErrorMessage = attemptErrors.at(-1)?.message || `Upstream returned HTTP ${result.status}.`;
             }
             const headers = { 'Cache-Control': 'no-store', 'Content-Type': result.headers.get('content-type') ||
                 (route[1] === 'responses' && result.ok ? 'text/event-stream' : 'application/json') };
@@ -538,6 +552,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             completionCounted = true;
         } catch (error) {
             requestErrorCode = error.code || 'proxy_error';
+            requestErrorMessage = error.message;
             requestBody ??= error.requestBody;
             if (!controller?.signal.aborted) void report(error, name);
             if (!response.headersSent && !response.destroyed) {
@@ -549,7 +564,8 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 try { await requestLog.record({ startedAt: requestStartedAt.toISOString(), finishedAt: new Date().toISOString(), method: request.method,
                     path: request.url, account: name, status: response.statusCode || null, success: (response.statusCode || 500) < 400,
                     durationMs: Date.now() - requestStartedAt.getTime(), requestBody,
-                    responseBody: Buffer.concat(responseChunks).toString('utf8'), errorCode: requestErrorCode || (response.statusCode >= 400 ? 'http_error' : null) }); }
+                    responseBody: Buffer.concat(responseChunks).toString('utf8'), errorCode: requestErrorCode || (response.statusCode >= 400 ? 'http_error' : null),
+                    errorMessage: requestErrorMessage, model: requestModel, attemptCount: attemptCount || 1, errorEvents: attemptErrors }); }
                 catch { /* Logging must never break a completed request. */ }
             }
             // Codex can close immediately after response.completed, before upstream EOF.
