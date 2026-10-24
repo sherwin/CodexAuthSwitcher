@@ -9,17 +9,32 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fetch as undiciFetch, ProxyAgent, Agent } from 'undici';
 import { defaultDirectory, initialize, readJSON, writeJSON, locked, accountPath, provider,
-    codexDirectory, ProxyError } from './storage.mjs';
+    codexDirectory, ProxyError, normalizeCapacityRetrySettings } from './storage.mjs';
 import { Credentials, upstream, isDeepSeek, deepSeekSettings, claims, responseError, syncActive } from './credentials.mjs';
-import { configure, configureAuthFile, unconfigure, restore, inspectConfiguration } from './config.mjs';
+import { configure, configureCustom, configureAuthFile, unconfigure, restore, inspectConfiguration } from './config.mjs';
 import { isLoopback, isPrivateAddress, lanAddresses } from './network.mjs';
 import { collectResponse } from './responses.mjs';
 import { eventObserver } from './sse.mjs';
 import { TokenStatistics, usageAccount, normalizedUsage } from './statistics.mjs';
 import { querySubscription } from './subscription.mjs';
+import { createRequestLog } from './request-log.mjs';
 
 const maxBody = 32 * 1024 * 1024;
 const retryableAuthCodes = new Set(['token_expired', 'invalid_token', 'token_invalidated']);
+const maxCapacityRetries = 5;
+function retryableStreamError(error) { return /network|disconnect|socket|body|fetch|transport/i.test(String(error?.message || error)); }
+async function transientResponse(response) {
+    if (!response || response.ok || ![429, 500, 502, 503, 504].includes(response.status)) return false;
+    try { const body = await response.clone().text(); return /selected\s+model\s+is\s+at\s+capacity/i.test(body) || (response.status === 502 && /bad\s+gateway|unknown\s+error/i.test(body)); }
+    catch { return false; }
+}
+async function waitRetry(settings) { await new Promise(resolve => setTimeout(resolve, Math.round((settings.min_seconds + Math.random() * (settings.max_seconds - settings.min_seconds)) * 1000))); }
+async function bufferStream(body) {
+    const chunks = []; let size = 0;
+    for await (const chunk of Readable.fromWeb(body)) { size += chunk.length; if (size > maxBody) throw new ProxyError('Response body too large.', 'response_too_large', 502); chunks.push(chunk); }
+    return Buffer.concat(chunks);
+}
+function streamCompleted(buffer) { const text = buffer.toString('utf8'); return /response\.completed/.test(text) && /"status"\s*:\s*"completed"/.test(text); }
 
 export function upstreamFetch() {
     let proxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY;
@@ -45,14 +60,14 @@ async function bodyJSON(request) {
     const chunks = [];
     for await (const chunk of request) {
         size += chunk.length;
-        if (size > maxBody) throw new ProxyError('Request body too large.', 'body_too_large', 413);
+        if (size > maxBody) { const error = new ProxyError('Request body too large.', 'body_too_large', 413); error.requestBody = Buffer.concat(chunks).toString('utf8'); throw error; }
         chunks.push(chunk);
     }
     try {
         const value = JSON.parse(Buffer.concat(chunks));
         if (!value || Array.isArray(value) || typeof value !== 'object') throw new Error();
         return value;
-    } catch { throw new ProxyError('Expected a JSON object.', 'invalid_body', 400); }
+    } catch { const error = new ProxyError('Expected a JSON object.', 'invalid_body', 400); error.requestBody = Buffer.concat(chunks).toString('utf8'); throw error; }
 }
 
 function sendJSON(response, status, value, extraHeaders = {}) {
@@ -73,10 +88,12 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
     const initial = await readJSON(statePath);
     const credentials = new Credentials(directory, initial.auth_directory, fetchUpstream);
     const statistics = new TokenStatistics(directory);
+    const requestLog = await createRequestLog(directory);
     const metrics = { in_flight: 0, last_error: null, last_account: null, completed_requests: 0 };
     const controllers = new Set();
     const pendingRequests = new Set();
     let paused = false;
+    let closed = false;
     let codexConnection = null;
     let configurationGeneration = 0;
     const notified = new Map();
@@ -141,6 +158,15 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
         let admittedGeneration;
         let terminalCompleted = false;
         let completionCounted = false;
+        const requestStartedAt = new Date();
+        let requestBody;
+        let requestErrorCode;
+        let shouldRecord = false;
+        const responseChunks = [];
+        const originalWrite = response.write.bind(response);
+        const originalEnd = response.end.bind(response);
+        response.write = (chunk, ...args) => { if (chunk && responseChunks.reduce((n, b) => n + b.length, 0) < maxBody) responseChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)); return originalWrite(chunk, ...args); };
+        response.end = (chunk, ...args) => { if (chunk && responseChunks.reduce((n, b) => n + b.length, 0) < maxBody) responseChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)); return originalEnd(chunk, ...args); };
         try {
             if (!authenticated(request, initial.key)) {
                 sendJSON(response, 401, { error: { code: 'local_key_required', message: 'Local gateway authentication required.' } });
@@ -168,6 +194,8 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                     proxy_running: true, codex_mode: state.mode || (state.enabled ? 'key' : 'unconfigured'),
                     restore_available: Boolean(state.config_backup && state.config_path && state.installed_config_hash),
                     codex_auth_file: state.codex_auth_file || (state.mode === 'auth_file' ? state.selected_file : null),
+                    custom_base_url: state.mode === 'custom' ? state.custom_base_url : null,
+                    capacity_retry: normalizeCapacityRetrySettings(state.capacity_retry),
                     codex_connection: { status: state.mode !== 'key' ? 'not_managed' :
                         !configuration.matches ? 'config_mismatch' : verified ? 'verified' : 'pending',
                         config_matches: configuration.matches, provider: configuration.provider || null,
@@ -210,9 +238,32 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                     files: files.sort((a, b) => a.name.localeCompare(b.name)), authDirectory: state.auth_directory });
                 return;
             }
+            if (url.pathname === '/admin/request-logs' && request.method === 'GET') {
+                const pageSize = 15, total = requestLog.count(), totalPages = Math.max(1, Math.ceil(total / pageSize));
+                sendJSON(response, 200, { logs: requestLog.list(pageSize, 0), page: 1, pageSize, total, totalPages }); return;
+            }
+            if (url.pathname.startsWith('/admin/request-logs/') && request.method === 'GET') {
+                const item = requestLog.get(Number(url.pathname.slice('/admin/request-logs/'.length)));
+                if (!item) throw new ProxyError('Request record not found.', 'request_log_not_found', 404);
+                sendJSON(response, 200, item); return;
+            }
+            if (url.pathname === '/admin/settings' && request.method === 'GET') {
+                sendJSON(response, 200, { capacity_retry: normalizeCapacityRetrySettings(state.capacity_retry) }); return;
+            }
             if (url.pathname.startsWith('/admin/') && request.method === 'POST') {
                 const input = await bodyJSON(request);
                 name = input.name;
+                requestBody = input;
+                if (url.pathname === '/admin/request-logs') {
+                    const pageSize = 15, total = requestLog.count(), totalPages = Math.max(1, Math.ceil(total / pageSize));
+                    const page = Math.min(totalPages, Math.max(1, Number(input.page) || 1));
+                    sendJSON(response, 200, { logs: requestLog.list(pageSize, (page - 1) * pageSize), page, pageSize, total, totalPages }); return;
+                }
+                if (url.pathname === '/admin/settings') {
+                    const capacityRetry = normalizeCapacityRetrySettings(input.capacity_retry);
+                    await locked(path.join(directory, 'state.mutex'), async () => { const latest = await readJSON(statePath); latest.capacity_retry = capacityRetry; await writeJSON(statePath, latest); });
+                    sendJSON(response, 200, { ok: true, capacity_retry: capacityRetry }); return;
+                }
                 if (url.pathname === '/admin/deepseek') {
                     await locked(path.join(directory, 'state.mutex'), async () => {
                         const latest = await readJSON(statePath);
@@ -231,6 +282,13 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                             DEEPSEEK_API_KEY: settings.api_key });
                     });
                     sendJSON(response, 200, { ok: true, name });
+                    return;
+                }
+                if (url.pathname === '/admin/custom') {
+                    await configureCustom(directory, input.base_url, input.api_key, path.join(codexDirectory, 'config.toml'), path.join(codexDirectory, 'auth.json'));
+                    configurationGeneration++;
+                    codexConnection = null;
+                    sendJSON(response, 200, { ok: true, base_url: String(input.base_url).replace(/\/$/, '') });
                     return;
                 }
                 if (url.pathname === '/admin/select') {
@@ -299,6 +357,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             const route = routes[url.pathname];
             if (paused) throw new ProxyError('代理正在更新网络设置，请稍后重试。', 'proxy_restarting', 503);
             if (!route || route[0] !== request.method) throw new ProxyError('Unsupported gateway route.', 'unsupported_route', 404);
+            shouldRecord = route[1] !== 'models';
             name = state.selected_file;
             const file = accountPath(state, name);
             let record = await credentials.get(file);
@@ -307,6 +366,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             let upstreamStream = false;
             if (request.method === 'POST') {
                 const input = await bodyJSON(request);
+                requestBody = input;
                 if (input.previous_response_id) throw new ProxyError('Send full conversation input when using account switching.', 'unsupported_continuation', 400);
                 if (route[1] === 'responses/compact' && isDeepSeek(record)) {
                     throw new ProxyError('DeepSeek 未提供 Responses compact 接口。', 'unsupported_wire_api', 400);
@@ -345,7 +405,9 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             pendingRequest = new Promise(resolve => { finishRequest = resolve; });
             pendingRequests.add(pendingRequest);
             let result;
-            for (let attempt = 0; attempt < 2; attempt++) {
+            let capacityRetries = 0;
+            const capacityRetry = normalizeCapacityRetrySettings(state.capacity_retry);
+            for (let attempt = 0; attempt < 2 + maxCapacityRetries; attempt++) {
                 const target = upstream(record, route[1]);
                 if (!target.token) throw new ProxyError('Account has no usable token.', 'login_required', 401);
                 const headers = { Authorization: `Bearer ${target.token}`, 'Content-Type': 'application/json',
@@ -357,6 +419,21 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 }
                 result = await fetchUpstream(target.url, { method: request.method, headers, body,
                     redirect: 'manual', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(600000)]) });
+                if (result.ok && upstreamStream && stream) {
+                    try {
+                        const buffered = await bufferStream(result.body);
+                        if (!streamCompleted(buffered) && capacityRetry.enabled && capacityRetries < maxCapacityRetries) {
+                            capacityRetries++; await waitRetry(capacityRetry); attempt--; continue;
+                        }
+                        result = new Response(buffered, { status: result.status, headers: result.headers });
+                    } catch (error) {
+                        if (capacityRetry.enabled && capacityRetries < maxCapacityRetries && retryableStreamError(error)) { capacityRetries++; await waitRetry(capacityRetry); attempt--; continue; }
+                        throw error;
+                    }
+                }
+                if (capacityRetry.enabled && capacityRetries < maxCapacityRetries && await transientResponse(result)) {
+                    capacityRetries++; await waitRetry(capacityRetry); attempt--; continue;
+                }
                 if (result.status !== 401 || attempt !== 0 || record.OPENAI_API_KEY || isDeepSeek(record)) break;
                 const error = await responseError(result);
                 if (!retryableAuthCodes.has(error.code)) throw error;
@@ -415,12 +492,21 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             metrics.completed_requests++;
             completionCounted = true;
         } catch (error) {
+            requestErrorCode = error.code || 'proxy_error';
+            requestBody ??= error.requestBody;
             if (!controller?.signal.aborted) void report(error, name);
             if (!response.headersSent && !response.destroyed) {
                 sendJSON(response, error.status || 502, { error: { code: error.code || 'upstream_unavailable',
                     message: error instanceof ProxyError ? error.message : 'The upstream connection failed.' } });
             } else response.destroy();
         } finally {
+            if (shouldRecord) {
+                try { await requestLog.record({ startedAt: requestStartedAt.toISOString(), finishedAt: new Date().toISOString(), method: request.method,
+                    path: request.url, account: name, status: response.statusCode || null, success: (response.statusCode || 500) < 400,
+                    durationMs: Date.now() - requestStartedAt.getTime(), requestBody,
+                    responseBody: Buffer.concat(responseChunks).toString('utf8'), errorCode: requestErrorCode || (response.statusCode >= 400 ? 'http_error' : null) }); }
+                catch { /* Logging must never break a completed request. */ }
+            }
             // Codex can close immediately after response.completed, before upstream EOF.
             // Count that completed inference, but never a stream canceled before its terminal event.
             if (active && terminalCompleted && !completionCounted && response.statusCode < 400) {
@@ -455,10 +541,12 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
         server.once('error', reject);
         server.listen(initial.port, initial.lan_enabled ? '0.0.0.0' : '127.0.0.1', resolve);
     });
-    return { server, metrics, notifyError: report, pause: () => {
+    return { server, metrics, requestLog, notifyError: report, pause: () => {
         if (metrics.in_flight) throw new ProxyError('请等待正在进行的请求结束后再修改网络设置。', 'requests_in_flight', 409);
         paused = true;
     }, close: async () => {
+        if (closed) return;
+        closed = true;
         for (const controller of controllers) controller.abort();
         server.closeAllConnections();
         await new Promise(resolve => server.close(resolve));

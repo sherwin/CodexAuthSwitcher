@@ -10,6 +10,13 @@ export const defaultDirectory = process.env.AUTH_SWITCHER_HOME || path.join(os.h
 export const defaultAuthDirectory = process.env.AUTH_SWITCHER_AUTH_DIR ||
     path.join(os.homedir(), process.platform === 'darwin' ? 'Code/Codex-auth' : 'Codex-auth');
 export const codexDirectory = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+export const defaultCapacityRetrySettings = Object.freeze({ enabled: true, min_seconds: 1, max_seconds: 5 });
+export function normalizeCapacityRetrySettings(value) {
+    const source = value && typeof value === 'object' ? value : {};
+    const min = Math.min(60, Math.max(0.1, Number(source.min_seconds) || 1));
+    const max = Math.min(60, Math.max(min, Number(source.max_seconds) || 5));
+    return { enabled: source.enabled !== false, min_seconds: min, max_seconds: max };
+}
 
 export class ProxyError extends Error {
     constructor(message, code = 'proxy_error', status = 503) {
@@ -67,8 +74,9 @@ export async function initialize(directory, selected) {
         try { state = await readJSON(file); } catch (error) {
             if (error.code !== 'ENOENT') throw error;
             state = { key: randomBytes(32).toString('base64url'), port: 18888, lan_enabled: false, enabled: false,
-                auth_directory: defaultAuthDirectory };
+                auth_directory: defaultAuthDirectory, capacity_retry: { ...defaultCapacityRetrySettings } };
         }
+        state.capacity_retry = normalizeCapacityRetrySettings(state.capacity_retry);
         await fs.mkdir(state.auth_directory, { recursive: true, mode: 0o700 });
         if (selected) {
             accountPath(state, path.basename(selected));

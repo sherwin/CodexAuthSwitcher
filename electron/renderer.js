@@ -19,6 +19,22 @@ let codexMode;
 let observedCodexMode;
 let editingDeepSeek = false;
 let savingDeepSeek = false;
+let requestLogs = [], requestLogsPage = 1, requestLogsTotalPages = 1, requestLogsTotal = 0;
+
+function renderCapacityRetrySettings(settings = health?.capacity_retry || { enabled: true, min_seconds: 1, max_seconds: 5 }) {
+    document.querySelector('#capacity-retry-enabled').checked = settings.enabled !== false;
+    document.querySelector('#capacity-retry-min').value = settings.min_seconds;
+    document.querySelector('#capacity-retry-max').value = settings.max_seconds;
+}
+function renderRequestLogs() {
+    const target = document.querySelector('#request-logs-list'); target.replaceChildren();
+    document.querySelector('#request-logs-page-label').textContent = `第 ${requestLogsPage} / ${requestLogsTotalPages} 页 · 共 ${requestLogsTotal} 条`;
+    document.querySelector('#request-logs-prev').disabled = requestLogsPage <= 1; document.querySelector('#request-logs-next').disabled = requestLogsPage >= requestLogsTotalPages;
+    for (const item of requestLogs) { const button = element('button', `request-log-row ${item.success ? 'success' : 'failure'}`); button.type = 'button'; button.append(element('strong', '', `${item.method} ${item.path}`), element('span', '', `${item.startedAt} · HTTP ${item.status || '—'} · ${item.durationMs} ms`)); button.onclick = () => showRequestLog(item.id); target.append(button); }
+    if (!requestLogs.length) target.append(element('p', 'muted', '暂无请求记录。'));
+}
+async function refreshRequestLogs(page = requestLogsPage) { const target = document.querySelector('#request-logs-list'); target.replaceChildren(element('p', 'request-logs-loading', '正在读取请求记录…')); try { const result = await call('requestLogs', { page }); requestLogs = result.logs || []; requestLogsPage = result.page || 1; requestLogsTotalPages = result.totalPages || 1; requestLogsTotal = result.total || 0; renderRequestLogs(); } catch (error) { target.replaceChildren(element('p', 'card-status error', error.message)); } }
+async function showRequestLog(id) { const detail = document.querySelector('#request-log-detail'); detail.setAttribute('aria-busy', 'true'); document.querySelector('#request-log-detail-title').textContent = '读取记录…'; document.querySelector('#request-log-request-body').textContent = '读取中…'; document.querySelector('#request-log-response-body').textContent = '读取中…'; try { const item = await call('requestLog', { id }); document.querySelector('#request-log-detail-title').textContent = `记录 #${item.id} · ${item.method} ${item.path}`; document.querySelector('#request-log-detail-meta').textContent = `${item.startedAt} · HTTP ${item.status || '—'} · ${item.durationMs} ms · ${item.success ? '成功' : '失败'}`; document.querySelector('#request-log-request-body').textContent = item.requestBody || '(空)'; document.querySelector('#request-log-response-body').textContent = item.responseBody || '(空)'; } catch (error) { document.querySelector('#request-log-detail-meta').textContent = error.message; } finally { detail.removeAttribute('aria-busy'); } }
 
 function openDeepSeek(item) {
     const form = document.querySelector('#deepseek-form');
@@ -65,6 +81,7 @@ function renderCodexMode() {
     for (const button of document.querySelectorAll('#codex-modes button')) button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
     document.querySelector('#mode-empty').hidden = mode !== 'unconfigured';
     document.querySelector('#mode-key').hidden = mode !== 'key';
+    document.querySelector('#mode-custom').hidden = mode !== 'custom';
     document.querySelector('#mode-auth-file').hidden = mode !== 'auth_file';
     document.querySelector('#unconfigure').disabled = busy || health?.codex_mode === 'unconfigured';
 }
@@ -370,6 +387,7 @@ async function updateHealth() {
         document.querySelector('#setup-note').className = 'notice' + (health.codex_mode === 'key' ? ' ' + connection.tone : '');
         document.querySelector('#setup-note').textContent = health.codex_mode === 'key'
             ? connection.text
+            : health.codex_mode === 'custom' ? `Codex 当前配置：局域网 Base URL · ${health.custom_base_url || '未记录地址'}。更新地址或 Key 后需重启 Codex。`
             : health.codex_mode === 'auth_file' ? `Codex 当前配置：授权文件直连 · ${health.codex_auth_file || '未记录账号'}。更新授权后需重启 Codex；代理仍独立运行。`
                 : '尚未由工具配置 Codex。可选择 Key 接入代理，或授权文件直连；两者都不会关闭本地代理。配置后需重启 Codex。';
         if (observedCodexMode !== health.codex_mode) {
@@ -504,6 +522,28 @@ document.querySelector('#configure').addEventListener('click', async () => {
     } catch (error) { message(error.message, true); }
     finally { busy = false; await updateHealth(); render(); }
 });
+document.querySelector('#custom-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = document.querySelector('#save-custom');
+    const status = document.querySelector('#custom-status');
+    button.disabled = true;
+    status.textContent = '正在写入 Codex 配置…';
+    try {
+        await call('custom', { base_url: document.querySelector('#custom-url').value.trim(), api_key: document.querySelector('#custom-key').value });
+        document.querySelector('#custom-key').value = '';
+        await updateHealth();
+        status.textContent = '已应用。请重启 Codex；后续请求会发送到该局域网服务。';
+        message('局域网 Base URL 已应用到 Codex 配置。');
+    } catch (error) { status.textContent = error.message; }
+    finally { button.disabled = false; }
+});
+document.querySelector('#open-settings').addEventListener('click', async () => { const result = await call('settings'); renderCapacityRetrySettings(result.capacity_retry); document.querySelector('#settings-dialog').showModal(); });
+document.querySelector('#save-settings').addEventListener('click', async event => { event.preventDefault(); const status = document.querySelector('#settings-status'); try { const min = Number(document.querySelector('#capacity-retry-min').value), max = Number(document.querySelector('#capacity-retry-max').value); const result = await call('settings', { capacity_retry: { enabled: document.querySelector('#capacity-retry-enabled').checked, min_seconds: min, max_seconds: max } }); renderCapacityRetrySettings(result.capacity_retry); document.querySelector('#settings-dialog').close(); message('重试设置已保存。'); } catch (error) { status.textContent = error.message; } });
+document.querySelector('#open-request-logs').addEventListener('click', () => { document.querySelector('#home-page').hidden = true; document.querySelector('#request-logs-page').hidden = false; refreshRequestLogs(1); });
+document.querySelector('#back-from-logs').addEventListener('click', () => { document.querySelector('#request-logs-page').hidden = true; document.querySelector('#home-page').hidden = false; });
+document.querySelector('#refresh-request-logs').addEventListener('click', () => refreshRequestLogs());
+document.querySelector('#request-logs-prev').addEventListener('click', () => refreshRequestLogs(requestLogsPage - 1)); document.querySelector('#request-logs-next').addEventListener('click', () => refreshRequestLogs(requestLogsPage + 1)); document.querySelector('#request-logs-go').addEventListener('click', () => refreshRequestLogs(Number(document.querySelector('#request-logs-page-input').value) || 1));
+document.querySelector('#close-request-log-detail').addEventListener('click', () => { document.querySelector('#request-log-detail-meta').textContent = '从左侧选择一条记录。'; document.querySelector('#request-log-request-body').textContent = '(未选择记录)'; document.querySelector('#request-log-response-body').textContent = '(未选择记录)'; });
 async function switchCodexAccount(name) {
     busy = true;
     render();

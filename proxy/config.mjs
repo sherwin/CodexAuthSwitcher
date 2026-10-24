@@ -72,9 +72,11 @@ export async function inspectConfiguration(state, config = path.join(codexDirect
         const auth = await fs.readFile(path.join(path.dirname(config), 'auth.json'), 'utf8');
         const credentials = JSON.parse(auth);
         const local = parsed.model_providers?.[provider];
+        const custom = state.mode === 'custom';
         const url = `http://127.0.0.1:${state.port}/v1`;
+        const expectedUrl = custom ? state.custom_base_url : url;
         const matches = parsed.model_provider === provider &&
-            parsed.openai_base_url === url && parsed.forced_login_method === 'api' &&
+            parsed.openai_base_url === expectedUrl && parsed.forced_login_method === 'api' &&
             parsed.cli_auth_credentials_store === 'file' && credentials.OPENAI_API_KEY === state.key &&
             credentials.auth_mode === 'apikey' && !credentials.tokens &&
             (state.covered_providers || []).every(id => id === 'openai' ||
@@ -84,10 +86,61 @@ export async function inspectConfiguration(state, config = path.join(codexDirect
             local?.base_url === url &&
             local?.experimental_bearer_token === state.key && local?.wire_api === 'responses' &&
             local?.requires_openai_auth === false && local?.supports_websockets === false;
-        return { matches: !!matches, fingerprint: hash(original + '\0' + auth), provider: parsed.model_provider || 'openai' };
+        const customMatches = custom && parsed.model_provider === 'openai' && parsed.openai_base_url === expectedUrl &&
+            parsed.forced_login_method === 'api' && parsed.cli_auth_credentials_store === 'file' &&
+            typeof credentials.OPENAI_API_KEY === 'string' && hash(credentials.OPENAI_API_KEY) === state.custom_key_hash;
+        return { matches: !!(custom ? customMatches : matches), fingerprint: hash(original + '\0' + auth), provider: parsed.model_provider || 'openai' };
     } catch (error) {
         return { matches: false, error: error.code === 'ENOENT' ? 'config_missing' : 'config_unreadable' };
     }
+}
+
+export async function configureCustom(directory, baseUrl, apiKey,
+    config = path.join(codexDirectory, 'config.toml'), auth = path.join(codexDirectory, 'auth.json')) {
+    let parsedUrl;
+    try { parsedUrl = new URL(String(baseUrl)); } catch { throw new ProxyError('Base URL 格式无效。', 'invalid_base_url', 400); }
+    if (!['http:', 'https:'].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password || parsedUrl.search || parsedUrl.hash) {
+        throw new ProxyError('Base URL 只支持 http/https，且不能包含账号密码。', 'invalid_base_url', 400);
+    }
+    const normalizedUrl = parsedUrl.toString().replace(/\/$/, '');
+    if (!normalizedUrl.endsWith('/v1')) parsedUrl.pathname = `${parsedUrl.pathname.replace(/\/$/, '')}/v1`;
+    const url = parsedUrl.toString().replace(/\/$/, '');
+    if (typeof apiKey !== 'string' || !apiKey.trim()) throw new ProxyError('请输入局域网服务 Key。', 'invalid_api_key', 400);
+    return locked(path.join(directory, 'state.mutex'), async () => {
+        const statePath = path.join(directory, 'proxy.json');
+        const state = await readJSON(statePath);
+        const original = await fs.readFile(config, 'utf8').catch(error => error.code === 'ENOENT' ? '' : Promise.reject(error));
+        const parsed = TOML.parse(original);
+        const start = original.indexOf(begin); const finish = original.indexOf(end);
+        if ((start < 0) !== (finish < 0) || (start >= 0 && finish < start))
+            throw new ProxyError('代理配置标记不完整，请先检查 config.toml。', 'invalid_config', 409);
+        const clean = start < 0 ? original : original.slice(0, start) + original.slice(finish + end.length);
+        const firstTable = clean.search(/^\s*\[/m);
+        const top = firstTable < 0 ? clean : clean.slice(0, firstTable);
+        const rest = firstTable < 0 ? '' : clean.slice(firstTable);
+        const updated = 'model_provider = "openai"\nopenai_base_url = ' + JSON.stringify(url) + '\n' +
+            'forced_login_method = "api"\ncli_auth_credentials_store = "file"\n' +
+            top.replace(/^\s*(?:model_provider|openai_base_url|forced_login_method|cli_auth_credentials_store)\s*=.*(?:\n|$)/gm, '') + rest +
+            (state.key_provider_sections || '') + '\n';
+        TOML.parse(updated);
+        const backup = path.join(directory, `config-before-custom-${randomUUID()}.toml`);
+        await atomicWrite(backup, original);
+        const oldAuth = await fs.readFile(auth).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
+        if (oldAuth) await atomicWrite(backup + '.auth.json', oldAuth);
+        try {
+            await writeJSON(auth, { auth_mode: 'apikey', OPENAI_API_KEY: apiKey.trim() });
+            await atomicWrite(config, updated);
+            state.config_backup = backup; state.config_path = config; state.installed_config_hash = hash(updated);
+            state.key_auth_backup = oldAuth ? backup + '.auth.json' : null;
+            state.custom_base_url = url; state.custom_key_hash = hash(apiKey.trim());
+            state.enabled = true; state.mode = 'custom';
+            await writeJSON(statePath, state);
+        } catch (error) {
+            await atomicWrite(config, original);
+            if (oldAuth) await atomicWrite(auth, oldAuth); else await fs.unlink(auth).catch(() => {});
+            throw error;
+        }
+    });
 }
 
 export async function configure(directory, config = path.join(codexDirectory, 'config.toml')) {
@@ -151,6 +204,7 @@ export async function configure(directory, config = path.join(codexDirectory, 'c
         state.installed_config_hash = hash(updated);
         state.enabled = true;
         state.mode = 'key';
+        delete state.custom_base_url; delete state.custom_key_hash;
         try {
             await writeJSON(auth, { auth_mode: 'apikey', OPENAI_API_KEY: state.key });
             await atomicWrite(config, updated);
@@ -207,6 +261,7 @@ export async function configureAuthFile(directory, record, config = path.join(co
             state.auth_file_backup = prefix;
             delete state.key_provider_sections;
             delete state.covered_providers;
+            delete state.custom_base_url; delete state.custom_key_hash;
             if (selected) state.codex_auth_file = selected;
             await writeJSON(statePath, state);
         } catch (error) {
@@ -224,6 +279,7 @@ export async function unconfigure(directory) {
         const state = await readJSON(statePath);
         state.enabled = false;
         state.mode = 'unconfigured';
+        delete state.custom_base_url; delete state.custom_key_hash;
         await writeJSON(statePath, state);
     });
 }
@@ -244,6 +300,7 @@ export async function restore(directory) {
         });
         state.enabled = false;
         delete state.mode;
+        delete state.custom_base_url; delete state.custom_key_hash;
         await writeJSON(statePath, state);
     });
 }

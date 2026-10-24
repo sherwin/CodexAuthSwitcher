@@ -18,6 +18,9 @@ const routes = new Map([
     ['POST /api/deepseek', '/admin/deepseek'],
     ['POST /api/auth-file', '/admin/auth-file'], ['POST /api/configure', '/admin/configure'],
     ['GET /api/statistics', '/admin/statistics'], ['POST /api/unconfigure', '/admin/unconfigure'],
+    ['GET /api/requestLogs', '/admin/request-logs'], ['POST /api/requestLogs', '/admin/request-logs'],
+    ['GET /api/settings', '/admin/settings'], ['POST /api/settings', '/admin/settings'],
+    ['POST /api/custom', '/admin/custom'],
 ]);
 async function body(req) {
     const parts = []; let size = 0;
