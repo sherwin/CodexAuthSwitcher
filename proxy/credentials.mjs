@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { ProxyError, locked, readJSON, writeJSON } from './storage.mjs';
 
 export const legacyClient = 'app_EMoamEEZ73f0CkXaXp7hrann';
+export const tokenRefreshWindowSeconds = 86400;
 
 export function claims(token) {
     try { return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()); }
@@ -83,14 +84,14 @@ export class Credentials {
             let tokens = record.tokens || {};
             const expiry = claims(tokens.access_token || '').exp || 0;
             if (failedToken && tokens.access_token !== failedToken) return record;
-            if (!force && expiry > Date.now() / 1000 + 300) return record;
+            if (!force && expiry > Date.now() / 1000 + tokenRefreshWindowSeconds) return record;
             // Reuse a newer copy of the same session before rotating an old duplicate.
             for (const name of await fs.readdir(this.authDirectory)) {
                 if (!name.endsWith('.json')) continue;
                 const candidate = await readJSON(path.join(this.authDirectory, name)).catch(() => null);
                 if (candidate && sameIdentity(record, candidate) &&
                     (claims(candidate.tokens?.access_token || '').exp || 0) > expiry &&
-                    (claims(candidate.tokens?.access_token || '').exp || 0) > Date.now() / 1000 + 300) {
+                    (claims(candidate.tokens?.access_token || '').exp || 0) > Date.now() / 1000 + tokenRefreshWindowSeconds) {
                     await writeJSON(file, candidate);
                     return candidate;
                 }

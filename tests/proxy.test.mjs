@@ -17,7 +17,7 @@ import { collectResponse } from '../proxy/responses.mjs';
 import { TokenStatistics, beijingTime, usageAccount, normalizedUsage } from '../proxy/statistics.mjs';
 
 const jwt = payload => 'header.' + Buffer.from(JSON.stringify(payload)).toString('base64url') + '.signature';
-const record = (account, expires = Date.now() / 1000 + 3600) => ({ auth_mode: 'chatgpt', tokens: {
+const record = (account, expires = Date.now() / 1000 + 172800) => ({ auth_mode: 'chatgpt', tokens: {
     access_token: jwt({ exp: expires, account }), refresh_token: 'refresh-' + account, account_id: account,
     id_token: jwt({ sub: 'user-' + account, aud: [legacyClient] }) } });
 
@@ -116,7 +116,7 @@ test('concurrent renewals rotate once and persist all replacement tokens', async
         assert.equal(options.body.get('resource'), null);
         assert.equal(options.body.get('client_id'), legacyClient);
         await new Promise(resolve => setTimeout(resolve, 50));
-        return Response.json({ access_token: jwt({ exp: Date.now() / 1000 + 3600 }),
+        return Response.json({ access_token: jwt({ exp: Date.now() / 1000 + 172800 }),
             refresh_token: 'rotated', id_token: record('a').tokens.id_token });
     });
     const results = await Promise.all(Array.from({ length: 8 }, () => credentials.get(file)));

@@ -13,7 +13,7 @@ export async function webFixture({ port = 0 } = {}) {
     const authDirectory = path.join(directory, 'accounts'), codexHome = path.join(directory, 'codex');
     await fs.mkdir(authDirectory); await fs.mkdir(codexHome);
     const jwt = data => 'header.' + Buffer.from(JSON.stringify(data)).toString('base64url') + '.signature';
-    const record = name => ({ tokens: { access_token: jwt({ exp: Date.now() / 1000 + 3600 }),
+    const record = name => ({ tokens: { access_token: jwt({ exp: Date.now() / 1000 + 172800 }),
         refresh_token: 'test-refresh-' + name, account_id: name } });
     for (const name of ['alpha', 'beta']) await writeJSON(path.join(authDirectory, name + '.json'), record(name));
     const stateFile = path.join(directory, 'proxy.json');
