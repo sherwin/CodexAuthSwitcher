@@ -339,13 +339,15 @@ function renderAccounts(target, direct) {
                 expiration ? `最近过期时间 ${date(expiration)}` : !data ? '最近过期时间：查询中…'
                     : creditCount === 0 ? '暂无可用重置卡' : '最近过期时间：未提供', '', expiryColor(expiration)),
             metric('会员到期', membership.value, membership.detail, membership.tone));
-        card.append(header, metrics, element('p', `card-status ${cached?.error ? 'error' : ''}`,
+        const accountMeta = element('div', 'account-meta-row');
+        accountMeta.append(element('p', `card-status ${cached?.error ? 'error' : ''}`,
             cached?.error || (cached ? `已更新 ${date(cached.fetchedAt)} · ${date(item.modifiedAt)} 保存` : '查询额度中…')));
         const tokenStatus = element('p', 'card-status');
         tokenStatus.append(element('span', expiryColor(cached?.tokenExpiresAt || item.tokenExpiresAt),
             '授权令牌到期 ' + date(cached?.tokenExpiresAt || item.tokenExpiresAt)),
             element('span', '', ' · 与会员到期无关'));
-        card.append(tokenStatus);
+        accountMeta.append(tokenStatus);
+        card.append(header, metrics, accountMeta);
         cards.push(card);
     }
     if (!cards.length) cards.push(element('p', 'muted', '没有可用于 Codex 直连的 ChatGPT 授权文件。'));
