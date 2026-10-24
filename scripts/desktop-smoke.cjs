@@ -28,6 +28,17 @@ app.on('browser-window-created', (_event, window) => {
             if (!result.ok || !result.result.proxy_running) throw Error('Native preload could not reach its local gateway');
             const rendered = await window.webContents.executeJavaScript('Boolean(document.querySelector("#workspace-tabs") && document.querySelector("#codex-modes"))');
             if (!rendered || nativeImage.createFromPath(windowIcon()).isEmpty()) throw Error('Desktop UI or native icon is missing');
+            await window.webContents.executeJavaScript(`(async () => {
+                document.querySelector('#open-request-logs').click();
+                if (document.querySelector('#request-logs-page').hidden || !document.querySelector('#home-page').hidden)
+                    throw Error('Request logs page did not become visible');
+                await new Promise(resolve => setTimeout(resolve, 50));
+                if (!document.querySelector('#request-logs-list').textContent.includes('暂无请求记录'))
+                    throw Error('Request logs page did not render its empty state');
+                document.querySelector('#back-from-logs').click();
+                if (document.querySelector('#home-page').hidden || !document.querySelector('#request-logs-page').hidden)
+                    throw Error('Request logs page did not return home');
+            })()`);
             // Let the renderer's initial refresh finish before shutting down its gateway.
             await window.webContents.executeJavaScript(`new Promise(resolve => {
                 const ready = () => document.querySelector('#refresh').disabled
