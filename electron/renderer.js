@@ -646,3 +646,4 @@ document.querySelector('#dismiss-notification').addEventListener('click', () => 
 });
 setInterval(() => { if (statisticsVisible) refreshStatistics(); }, 10000);
 refresh();
+
