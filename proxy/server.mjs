@@ -476,8 +476,8 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                     capacityRetries++; await waitRetry(capacityRetry); attempt--; continue;
                 }
                 const errorKey = `${name}`;
-                if (!result.ok) recentErrors.set(errorKey, (recentErrors.get(errorKey) || 0) + 1); else recentErrors.delete(errorKey);
-                const exhausted = !result.ok && (recentErrors.get(errorKey) >= normalizePrioritySettings(state.priority).max_errors || await transientResponse(result));
+                if (!result.ok) { const previous = recentErrors.get(errorKey); const now = Date.now(); const count = previous && now - previous.at < 60000 ? previous.count + 1 : 1; recentErrors.set(errorKey, { count, at: now }); } else recentErrors.delete(errorKey);
+                const exhausted = !result.ok && (recentErrors.get(errorKey)?.count >= normalizePrioritySettings(state.priority).max_errors || await transientResponse(result));
                 if (exhausted && await switchQueuedAccount()) { capacityRetries = 0; attempt = -1; continue; }
                 if (result.status !== 401 || attempt !== 0 || record.OPENAI_API_KEY || isDeepSeek(record)) break;
                 const error = await responseError(result);
