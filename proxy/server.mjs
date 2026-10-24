@@ -399,7 +399,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 name = next;
                 if (name === '__custom__') { const customAuth = await readJSON(path.join(codexHome, 'auth.json')); record = { provider: 'custom', base_url: state.custom_base_url, api_key: customAuth.OPENAI_API_KEY }; }
                 else { file = accountPath(state, name); record = await credentials.get(file); }
-                await locked(path.join(directory, 'state.mutex'), async () => { const latest = await readJSON(statePath); latest.selected_file = name; await writeJSON(statePath, latest); });
+                if (name !== '__custom__') await locked(path.join(directory, 'state.mutex'), async () => { const latest = await readJSON(statePath); latest.selected_file = name; await writeJSON(statePath, latest); });
                 return true;
             }
             let body;
