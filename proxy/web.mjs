@@ -20,6 +20,7 @@ const routes = new Map([
     ['GET /api/statistics', '/admin/statistics'], ['POST /api/unconfigure', '/admin/unconfigure'],
     ['GET /api/requestLogs', '/admin/request-logs'], ['POST /api/requestLogs', '/admin/request-logs'],
     ['GET /api/settings', '/admin/settings'], ['POST /api/settings', '/admin/settings'],
+    ['GET /api/priority', '/admin/priority'], ['POST /api/priority', '/admin/priority'],
     ['POST /api/custom', '/admin/custom'],
 ]);
 async function body(req) {

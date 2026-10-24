@@ -1,6 +1,6 @@
 /* Adapt the unchanged desktop renderer to the authenticated Surface backend. */
 (() => {
-    const routes = { status: ['status'], accounts: ['accounts'], statistics: ['statistics'], requestLogs: ['requestLogs', true], requestLog: ['requestLogs', true], settings: ['settings', true], custom: ['custom', true],
+    const routes = { status: ['status'], accounts: ['accounts'], statistics: ['statistics'], requestLogs: ['requestLogs', true], requestLog: ['requestLogs', true], settings: ['settings', true], priority: ['priority', true], custom: ['custom', true],
         usage: ['usage', true], select: ['select', true], deepseek: ['deepseek', true], configure: ['configure', true],
         authFile: ['auth-file', true], unconfigure: ['unconfigure', true] };
     async function request(route, data) {

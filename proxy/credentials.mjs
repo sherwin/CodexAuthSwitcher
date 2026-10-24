@@ -42,6 +42,7 @@ export function deepSeekSettings(record) {
 }
 
 export function upstream(record, route) {
+    if (record?.provider === 'custom') return { url: `${String(record.base_url).replace(/\/+$/, '')}/${route}`, token: record.api_key, provider: 'custom' };
     if (isDeepSeek(record)) {
         const settings = deepSeekSettings(record);
         return { url: `${settings.base_url}/${route}`, token: settings.api_key, provider: 'deepseek' };

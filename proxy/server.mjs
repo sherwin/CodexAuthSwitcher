@@ -125,7 +125,9 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             .filter(entry => entry.isFile() && entry.name.endsWith('.json')).map(entry => entry.name);
         const priority = normalizePrioritySettings(state.priority);
         const order = [...priority.order.filter(name => files.includes(name)), ...files.filter(name => !priority.order.includes(name)).sort()];
-        return order.map(name => ({ name, enabled: !priority.disabled.includes(name), active: name === state.selected_file }));
+        const entries = order.map(name => ({ name, enabled: !priority.disabled.includes(name), active: name === state.selected_file }));
+        if (priority.include_custom && state.custom_base_url) entries.push({ name: '__custom__', label: `局域网 ${state.custom_base_url}`, enabled: !priority.disabled.includes('__custom__'), active: state.mode === 'custom' });
+        return entries;
     }
     async function selectNext(state, current) {
         const entries = await priorityEntries(state);
@@ -394,7 +396,9 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 queueIndex = (queueIndex + 1) % queue.length;
                 const next = queue[queueIndex];
                 if (!next || next === name) return false;
-                name = next; file = accountPath(state, name); record = await credentials.get(file);
+                name = next;
+                if (name === '__custom__') { const customAuth = await readJSON(path.join(codexHome, 'auth.json')); record = { provider: 'custom', base_url: state.custom_base_url, api_key: customAuth.OPENAI_API_KEY }; }
+                else { file = accountPath(state, name); record = await credentials.get(file); }
                 await locked(path.join(directory, 'state.mutex'), async () => { const latest = await readJSON(statePath); latest.selected_file = name; await writeJSON(statePath, latest); });
                 return true;
             }

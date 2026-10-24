@@ -98,7 +98,8 @@
   </section>
   <div id="notification" class="notification" hidden><span id="message" role="status" aria-live="polite"></span><button id="dismiss-notification" type="button" aria-label="关闭提示">×</button></div>
   <dialog id="settings-dialog"><form method="dialog" id="settings-form"><h2>代理设置</h2><p class="muted">容量、502 Bad Gateway 和流式网络断开会在内部随机等待后重试。</p><label><input id="capacity-retry-enabled" type="checkbox"> 开启自动重试</label><div class="settings-range"><label>最短秒<input id="capacity-retry-min" type="number" min="0.1" max="60" step="0.1"></label><label>最长秒<input id="capacity-retry-max" type="number" min="0.1" max="60" step="0.1"></label></div><p id="settings-status" class="muted"></p><div class="dialog-actions"><button value="cancel">取消</button><button id="save-settings" class="primary" value="default">保存设置</button></div></form></dialog>
-  <dialog id="priority-dialog"><form method="dialog" id="priority-form"><h2>出口自动切换队列</h2><p class="muted">请求遇到额度上限或同一账号短时间累计 10 次错误时，会按此顺序切换。整轮账号都失败后才返回错误。</p><label><input id="priority-enabled" type="checkbox"> 启用自动切换</label><div id="priority-list" class="priority-list"></div><p id="priority-status" class="muted"></p><div class="dialog-actions"><button value="cancel">取消</button><button id="save-priority" class="primary" value="default">保存队列</button></div></form></dialog>
+  <dialog id="priority-dialog"><form method="dialog" id="priority-form"><h2>出口自动切换队列</h2><p class="muted">请求遇到额度上限或同一账号短时间累计 10 次错误时，会按此顺序切换。整轮账号都失败后才返回错误。</p><label><input id="priority-enabled" type="checkbox"> 启用自动切换</label><label><input id="priority-include-custom" type="checkbox"> 把局域网 Base URL 加入队列</label><div id="priority-list" class="priority-list"></div><p id="priority-status" class="muted"></p><div class="dialog-actions"><button value="cancel">取消</button><button id="save-priority" class="primary" value="default">保存队列</button></div></form></dialog>
   <script src="renderer.js"></script>
 </body>
 </html>
+
