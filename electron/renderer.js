@@ -27,29 +27,9 @@ function renderCapacityRetrySettings(settings = health?.capacity_retry || { enab
     document.querySelector('#capacity-retry-min').value = settings.min_seconds;
     document.querySelector('#capacity-retry-max').value = settings.max_seconds;
 }
-function renderPriorityBoard() {
-    let enabled = document.querySelector('#priority-enabled-list');
-    let disabled = document.querySelector('#priority-disabled-list');
-    enabled.replaceWith(enabled.cloneNode(false)); disabled.replaceWith(disabled.cloneNode(false));
-    enabled = document.querySelector('#priority-enabled-list'); disabled = document.querySelector('#priority-disabled-list');
-    enabled.replaceChildren(); disabled.replaceChildren();
-    for (const item of priorityData.entries || []) {
-        const row = element('div', 'priority-row', item.name);
-        row.draggable = true; row.dataset.name = item.name;
-        row.addEventListener('dragstart', event => { event.dataTransfer.setData('text/plain', item.name); row.classList.add('dragging'); });
-        row.addEventListener('dragend', () => row.classList.remove('dragging'));
-        (item.enabled ? enabled : disabled).append(row);
-    }
-    for (const zone of [enabled, disabled]) {
-        zone.addEventListener('dragover', event => { event.preventDefault(); zone.classList.add('drag-over'); });
-        zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
-        zone.addEventListener('drop', event => { event.preventDefault(); zone.classList.remove('drag-over'); const name = event.dataTransfer.getData('text/plain'); const row = [...document.querySelectorAll('.priority-row')].find(item => item.dataset.name === name); if (!row) return; const before = event.target.closest('.priority-row'); if (before && before.parentElement === zone && before !== row) zone.insertBefore(row, before); else zone.append(row); savePriorityBoard(); });
-    }
-}
-async function savePriorityBoard() {
-    const order = [...document.querySelectorAll('#priority-enabled-list .priority-row, #priority-disabled-list .priority-row')].map(row => row.dataset.name);
-    const disabled = [...document.querySelectorAll('#priority-disabled-list .priority-row')].map(row => row.dataset.name);
-    const status = document.querySelector('#priority-board-status');
+async function savePriorityBoard(enabledZone, disabledZone, status) {
+    const order = [...enabledZone.querySelectorAll('.account-card'), ...disabledZone.querySelectorAll('.account-card')].map(row => row.dataset.name);
+    const disabled = [...disabledZone.querySelectorAll('.account-card')].map(row => row.dataset.name);
     try { status.textContent = '保存中…'; const result = await call('priority', { priority: { enabled: order.length > disabled.length, order, disabled } }); priorityData.priority = result.priority; priorityData.entries = order.map(name => ({ name, enabled: !disabled.includes(name) })); status.textContent = '已保存'; setTimeout(() => { if (status.textContent === '已保存') status.textContent = ''; }, 1800); }
     catch (error) { status.textContent = `保存失败：${error.message}`; }
 }
@@ -302,7 +282,6 @@ function windowMetric(title, window) {
 
 function render() {
     const { scrollX, scrollY } = window;
-    renderPriorityBoard();
     renderAccounts(accounts, false);
     renderAccounts(document.querySelector('#codex-accounts'), true);
     window.scrollTo({ left: scrollX, top: scrollY, behavior: 'instant' });
@@ -317,7 +296,9 @@ function renderAccounts(target, direct) {
         const data = cached?.data;
         const limits = data?.rate_limit || data?.rateLimitsByLimitId?.codex || data?.rateLimits;
         const active = direct ? health?.codex_mode === 'auth_file' && health.codex_auth_file === item.name : health?.selected_file === item.name;
-        const card = element('section', `card ${active ? 'active' : ''}`);
+        const card = element('section', `card account-card ${active ? 'active' : ''}`);
+        card.dataset.name = item.name;
+        card.draggable = !direct;
         const header = element('div', 'card-header');
         const label = element('div');
         label.append(element('span', 'account-name', item.name));
@@ -369,8 +350,28 @@ function renderAccounts(target, direct) {
         card.append(header, metrics, updateStatus, tokenStatus);
         cards.push(card);
     }
-    if (!cards.length) cards.push(element('p', 'muted', '没有可用于 Codex 直连的 ChatGPT 授权文件。'));
-    target.replaceChildren(...cards);
+    if (!cards.length) { target.replaceChildren(element('p', 'muted', direct ? '没有可用于 Codex 直连的 ChatGPT 授权文件。' : '此目录没有 JSON 授权文件，请选择授权目录。')); return; }
+    if (direct) { target.replaceChildren(...cards); return; }
+    const enabledNames = new Set((priorityData.entries || []).filter(item => item.enabled).map(item => item.name));
+    const order = new Map((priorityData.entries || []).map((item, index) => [item.name, index]));
+    cards.sort((a, b) => (order.get(a.dataset.name) ?? 9999) - (order.get(b.dataset.name) ?? 9999));
+    const status = element('span', 'muted');
+    const heading = element('div', 'list-heading priority-inline-heading');
+    heading.append(element('p', 'muted', '拖动账号调整优先级；上方参与自动切换，下方不参与。'), status);
+    const enabledZone = element('div', 'priority-inline-zone');
+    const disabledZone = element('div', 'priority-inline-zone');
+    enabledZone.append(element('h3', '', '参与自动切换')); disabledZone.append(element('h3', '', '不参与自动切换'));
+    const enabledDrop = element('div', 'priority-dropzone'); const disabledDrop = element('div', 'priority-dropzone');
+    enabledZone.append(enabledDrop); disabledZone.append(disabledDrop);
+    for (const card of cards) (enabledNames.has(card.dataset.name) ? enabledDrop : disabledDrop).append(card);
+    const wire = (zone, other) => {
+        zone.addEventListener('dragover', event => { event.preventDefault(); zone.classList.add('drag-over'); });
+        zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+        zone.addEventListener('drop', event => { event.preventDefault(); zone.classList.remove('drag-over'); const name = event.dataTransfer.getData('text/plain'); const card = [...target.querySelectorAll('.account-card')].find(item => item.dataset.name === name); if (!card) return; const before = event.target.closest('.account-card'); if (before && before.parentElement === zone && before !== card) zone.insertBefore(card, before); else zone.append(card); savePriorityBoard(enabledDrop, disabledDrop, status); });
+    };
+    for (const card of cards) { card.addEventListener('dragstart', event => { event.dataTransfer.setData('text/plain', card.dataset.name); card.classList.add('dragging'); }); card.addEventListener('dragend', () => card.classList.remove('dragging')); }
+    wire(enabledDrop, disabledDrop); wire(disabledDrop, enabledDrop);
+    target.replaceChildren(heading, enabledZone, disabledZone);
 }
 
 function nearestResetCreditExpiry(available) {
