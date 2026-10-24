@@ -11,7 +11,7 @@
   <div id="home-page">
   <header>
     <div><p class="eyebrow">LOCAL ACCOUNT GATEWAY</p><h1>Codex Auth Switcher</h1><p class="muted">本地代理与 Codex 连接配置，独立管理。</p></div>
-    <div class="actions"><button id="open-statistics" class="statistics-link" aria-label="查看日周月 Token 用量"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10m8 10V4m8 16v-7"/></svg>用量统计</button><button id="open-request-logs">请求记录</button><button id="open-priority">自动切换</button><button id="open-settings">设置</button><button id="refresh">刷新额度</button></div>
+    <div class="actions"><button id="open-statistics" class="statistics-link" aria-label="查看日周月 Token 用量"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10m8 10V4m8 16v-7"/></svg>用量统计</button><button id="open-request-logs">请求记录</button><button id="open-settings">设置</button><button id="refresh">刷新额度</button></div>
   </header>
   <nav id="workspace-tabs" class="workspace-tabs" role="tablist" aria-label="配置管理">
     <button id="tab-proxy" role="tab" aria-selected="true" aria-controls="proxy-page" tabindex="0">本地代理</button>
@@ -46,6 +46,7 @@
   </details>
   </div>
   <div class="list-heading"><h2>代理出口账号</h2><div class="actions"><button id="add-deepseek">添加自定义 API 账号</button><button id="directory" class="text-button">选择授权目录</button></div></div>
+  <section id="priority-board" class="priority-board" aria-labelledby="priority-board-title"><div class="list-heading"><div><h2 id="priority-board-title">自动切换顺序</h2><p class="muted">拖动账号调整优先级；上方账号参与自动切换，下方账号保留但不会自动切换。</p></div><span id="priority-board-status" class="muted" role="status"></span></div><div class="priority-zones"><div><h3>参与自动切换</h3><div id="priority-enabled-list" class="priority-dropzone" data-enabled="true"></div></div><div><h3>不参与自动切换</h3><div id="priority-disabled-list" class="priority-dropzone" data-enabled="false"></div></div></div></section>
   <p class="muted">切换只影响代理的新请求，不修改 Codex 直连授权；进行中的请求继续使用原账号。</p>
   <p id="directory-path" class="muted path"></p>
   <main id="accounts"><p class="muted">读取账号…</p></main>
@@ -97,7 +98,6 @@
   </section>
   <div id="notification" class="notification" hidden><span id="message" role="status" aria-live="polite"></span><button id="dismiss-notification" type="button" aria-label="关闭提示">×</button></div>
   <dialog id="settings-dialog"><form method="dialog" id="settings-form"><h2>代理设置</h2><p class="muted">容量、502 Bad Gateway 和流式网络断开会在内部随机等待后重试。</p><label><input id="capacity-retry-enabled" type="checkbox"> 开启自动重试</label><div class="settings-range"><label>最短秒<input id="capacity-retry-min" type="number" min="0.1" max="60" step="0.1"></label><label>最长秒<input id="capacity-retry-max" type="number" min="0.1" max="60" step="0.1"></label></div><p id="settings-status" class="muted"></p><div class="dialog-actions"><button value="cancel">取消</button><button id="save-settings" class="primary" value="default">保存设置</button></div></form></dialog>
-  <dialog id="priority-dialog"><form method="dialog" id="priority-form"><h2>出口自动切换队列</h2><p class="muted">请求遇到额度上限或同一账号短时间累计 10 次错误时，会按此顺序切换。整轮账号都失败后才返回错误。</p><label><input id="priority-enabled" type="checkbox"> 启用自动切换</label><div id="priority-list" class="priority-list"></div><p id="priority-status" class="muted"></p><div class="dialog-actions"><button value="cancel">取消</button><button id="save-priority" class="primary" value="default">保存队列</button></div></form></dialog>
   <script src="renderer.js"></script>
 </body>
 </html>
