@@ -17,11 +17,9 @@ function installDesktopShell({ app, window, Menu, Tray, nativeImage, platform = 
         ]));
         tray.on('click', show);
     } catch { warn('System tray unavailable; the desktop window remains usable.'); }
-    Menu.setApplicationMenu(Menu.buildFromTemplate([
-        { label: 'Auth Switcher', submenu: [{ label: 'Show Window', click: show },
-            { label: 'Quit', accelerator: 'CmdOrCtrl+Q', click: () => app.quit() }] },
-        { role: 'editMenu' }, { role: 'windowMenu' },
-    ]));
+    // Keep the window focused on the account controls; tray actions remain available
+    // without showing the native File/Edit/Window menu bar above the app.
+    Menu.setApplicationMenu(null);
     return tray;
 }
 module.exports = { windowIcon, installDesktopShell };

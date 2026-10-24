@@ -19,10 +19,10 @@ test('each desktop uses a real native icon and only macOS uses a template tray',
         assert.equal(readFileSync(imagePath).subarray(0,8).toString('hex'), '89504e470d0a1a0a');
         assert.equal(template, platform === 'darwin');
         assert.equal(windowIcon(platform).endsWith('.ico'), platform === 'win32');
-        events.get('click')(); assert.equal(shown,1); assert.equal(focused,1); assert.ok(menu.length);
+        events.get('click')(); assert.equal(shown,1); assert.equal(focused,1); assert.equal(menu, null);
     }
 });
-test('a missing system tray does not prevent the desktop menu or window from working', () => {
+test('a missing system tray does not prevent the window from working', () => {
     let menu = false, warned = false;
     const tray = installDesktopShell({ app: {}, window: {}, platform: 'linux',
         nativeImage: { createFromPath() { return { isEmpty: () => true }; } },
