@@ -340,7 +340,7 @@ function renderAccounts(target, direct) {
                     : creditCount === 0 ? '暂无可用重置卡' : '最近过期时间：未提供', '', expiryColor(expiration)),
             metric('会员到期', membership.value, membership.detail, membership.tone));
         const updateStatus = element('p', `card-status ${cached?.error ? 'error' : ''}`,
-            cached?.error || (cached ? `已更新 ${date(cached.fetchedAt)} · ${date(item.modifiedAt)} 保存` : '查询额度中…')));
+            cached?.error || (cached ? `已更新 ${date(cached.fetchedAt)} · ${date(item.modifiedAt)} 保存` : '查询额度中…')); 
         const tokenStatus = element('p', 'card-status');
         tokenStatus.append(element('span', expiryColor(cached?.tokenExpiresAt || item.tokenExpiresAt),
             '授权令牌到期 ' + date(cached?.tokenExpiresAt || item.tokenExpiresAt)),
@@ -646,4 +646,5 @@ document.querySelector('#dismiss-notification').addEventListener('click', () => 
 });
 setInterval(() => { if (statisticsVisible) refreshStatistics(); }, 10000);
 refresh();
+
 
