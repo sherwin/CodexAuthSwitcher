@@ -239,7 +239,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 return;
             }
             if (url.pathname === '/admin/request-logs' && request.method === 'GET') {
-                const pageSize = 15, total = requestLog.count(), totalPages = Math.max(1, Math.ceil(total / pageSize));
+                const pageSize = 10, total = requestLog.count(), totalPages = Math.max(1, Math.ceil(total / pageSize));
                 sendJSON(response, 200, { logs: requestLog.list(pageSize, 0), page: 1, pageSize, total, totalPages }); return;
             }
             if (url.pathname.startsWith('/admin/request-logs/') && request.method === 'GET') {
@@ -255,7 +255,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 name = input.name;
                 requestBody = input;
                 if (url.pathname === '/admin/request-logs') {
-                    const pageSize = 15, total = requestLog.count(), totalPages = Math.max(1, Math.ceil(total / pageSize));
+                    const pageSize = 10, total = requestLog.count(), totalPages = Math.max(1, Math.ceil(total / pageSize));
                     const page = Math.min(totalPages, Math.max(1, Number(input.page) || 1));
                     sendJSON(response, 200, { logs: requestLog.list(pageSize, (page - 1) * pageSize), page, pageSize, total, totalPages }); return;
                 }
