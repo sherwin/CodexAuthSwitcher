@@ -102,7 +102,8 @@ function responseText(value) {
 function sendJSON(response, status, value, extraHeaders = {}) {
     const body = JSON.stringify(value);
     response.writeHead(status, { ...extraHeaders, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body),
-        'Cache-Control': 'no-store' });
+        'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Requested-With' });
     response.end(body);
 }
 
@@ -115,6 +116,8 @@ function cursorProtoHeaders(request, { stream = false } = {}) {
     const contentType = stream ? (requested.includes('grpc-web') ? 'application/grpc-web+proto' :
         requested.includes('grpc') ? 'application/grpc+proto' : 'application/connect+proto') : 'application/proto';
     return { 'Content-Type': contentType, 'Cache-Control': 'no-store',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Requested-With',
         ...(contentType.includes('grpc') ? { 'grpc-encoding': 'identity' } :
             contentType.includes('connect') ? { 'Connect-Protocol-Version': '1' } : {}) };
 }
@@ -249,6 +252,13 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             }
             const url = new URL(request.url, 'http://127.0.0.1');
             const local = isLoopback(request.socket.remoteAddress);
+            if (request.method === 'OPTIONS' && local) {
+                response.writeHead(204, { 'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Requested-With' });
+                response.end();
+                return;
+            }
             if (!local && (!initial.lan_enabled || !isPrivateAddress(request.socket.remoteAddress))) {
                 throw new ProxyError('Only local network clients are allowed.', 'lan_access_denied', 403);
             }
