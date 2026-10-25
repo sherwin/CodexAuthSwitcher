@@ -97,6 +97,20 @@ export function patchCursorSource(source, url = localUrl) {
     ];
     let result = source;
     for (const [from, to] of replacements) result = result.replaceAll(from, to);
+    // Cursor still gates Chat behind its hosted session even after the local
+    // backend URL is redirected.  The local gateway supplies the account
+    // probes, so make the workbench use that local session for the two checks
+    // that otherwise open the hosted login flow.  These replacements are
+    // idempotent and are intentionally scoped to the current minified auth
+    // service shape.
+    result = result.replace(
+        'isAuthenticated(){const F=this.t(),x=this.s();return!!(F&&x)}',
+        'isAuthenticated(){return!0}'
+    );
+    result = result.replace(
+        'async getAuthenticationHeader(){const F=await this.getAccessToken();return F?{Authorization:`Bearer ${F}`}:{}}',
+        'async getAuthenticationHeader(){return{Authorization:"Bearer local-cursor-token"}}'
+    );
     if (result === source) throw new Error('未找到当前 Cursor 版本的补全后端地址，可能需要更新适配规则。');
     return result;
 }

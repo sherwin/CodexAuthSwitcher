@@ -54,10 +54,19 @@ test('Cursor patch locations and replacements work on Windows and macOS', () => 
     assert.equal(patched, 'ykt="http://127.0.0.1:18888";SWe="http://127.0.0.1:18888"');
 });
 
-test('Cursor newer minified backend constants are patched without login changes', () => {
+test('Cursor newer minified backend constants are patched', () => {
     const source = 'auth="https://api.cursor.com";a="https://api2.cursor.sh";b="https://api3.cursor.sh";prr="https://api4.cursor.sh";j6n="https://api4.cursor.sh"';
     const patched = patchCursorSource(source, 'http://127.0.0.1:18888');
     assert.equal(patched, 'auth="http://127.0.0.1:18888";a="http://127.0.0.1:18888";b="http://127.0.0.1:18888";prr="http://127.0.0.1:18888";j6n="http://127.0.0.1:18888"');
+});
+
+test('Cursor local patch bypasses hosted login checks', () => {
+    const source = 'isAuthenticated(){const F=this.t(),x=this.s();return!!(F&&x)}' +
+        'async getAuthenticationHeader(){const F=await this.getAccessToken();return F?{Authorization:`Bearer ${F}`}:{}}' +
+        'a="https://api2.cursor.sh"';
+    const patched = patchCursorSource(source, 'http://127.0.0.1:18888');
+    assert.match(patched, /isAuthenticated\(\)\{return!0\}/);
+    assert.match(patched, /getAuthenticationHeader\(\)\{return\{Authorization:"Bearer local-cursor-token"\}\}/);
 });
 
 test('Cursor patch is idempotent after an earlier local enable', () => {
