@@ -19,7 +19,7 @@ import { TokenStatistics, usageAccount, normalizedUsage } from './statistics.mjs
 import { querySubscription } from './subscription.mjs';
 import { createRequestLog } from './request-log.mjs';
 import { decodeConnectEnvelopes, decodeStreamCppRequest, encodeStreamCppResponse,
-    encodeAvailableModelsResponse, connectEnvelope, cursorPrompt, extractCursorChatPrompt,
+    encodeAvailableModelsResponse, connectEnvelope, cursorPrompt, extractCursorChatPrompt, extractCursorChatModel,
     encodeStreamChatResponse } from './cursor-connect.mjs';
 
 const maxBody = 32 * 1024 * 1024;
@@ -47,8 +47,22 @@ async function bufferStream(body) {
 function streamCompleted(buffer) { const text = buffer.toString('utf8'); return /response\.completed/.test(text) && /"status"\s*:\s*"completed"/.test(text); }
 function upstreamErrorDetail(error) { return error?.cause?.message || error?.message || String(error) || 'The upstream connection failed.'; }
 
+function windowsSystemProxy() {
+    if (process.platform !== 'win32') return '';
+    try {
+        const output = execFileSync('reg.exe', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'], { encoding: 'utf8', timeout: 2000 });
+        if (!/ProxyEnable\s+REG_DWORD\s+0x1/i.test(output)) return '';
+        const match = output.match(/ProxyServer\s+REG_SZ\s+([^\r\n]+)/i);
+        const value = match?.[1]?.trim() || '';
+        if (!value) return '';
+        const httpProxy = value.split(';').find(item => /^https?=\s*/i.test(item))?.replace(/^https?=\s*/i, '') || value;
+        return /^https?:\/\//i.test(httpProxy) ? httpProxy : `http://${httpProxy}`;
+    } catch { return ''; }
+}
+
 export function upstreamFetch() {
     let proxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY;
+    if (!proxy) proxy = windowsSystemProxy();
     if (!proxy && process.platform === 'darwin') {
         try {
             const settings = execFileSync('/usr/sbin/scutil', ['--proxy'], { encoding: 'utf8', timeout: 2000 });
@@ -359,22 +373,42 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 return;
             }
             if (cursorChat) {
-                const envelopes = decodeConnectEnvelopes(await rawBody(request));
-                if (envelopes.length !== 1 || envelopes[0].flags !== 0)
-                    throw new ProxyError('Cursor Chat Connect request envelope is unsupported.', 'invalid_cursor_request', 400);
-                const prompt = extractCursorChatPrompt(envelopes[0].message) || 'Reply with exactly: LOCAL_CURSOR_REPLY';
+                const body = await rawBody(request);
+                let envelopes;
+                try {
+                    envelopes = decodeConnectEnvelopes(body);
+                } catch {
+                    envelopes = [];
+                }
+                // Cursor 0.44.x may send a raw protobuf body for StreamChat
+                // even though the response uses the Connect stream envelope.
+                // Accept both forms so a protocol framing change does not
+                // surface as an opaque 400 to the chat UI.
+                const input = envelopes.length === 1 && envelopes[0].flags === 0
+                    ? envelopes[0].message : body;
+                const prompt = extractCursorChatPrompt(input) || 'Reply with exactly: LOCAL_CURSOR_REPLY';
+                const model = extractCursorChatModel(input) || 'gpt-6.1-sol';
                 const localPort = server.address()?.port;
                 if (!localPort) throw new ProxyError('本地代理尚未监听端口。', 'proxy_not_ready', 503);
                 const localResult = await undiciFetch(`http://127.0.0.1:${localPort}/v1/responses`, {
                     method: 'POST', headers: { Authorization: `Bearer ${initial.key}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ model: 'gpt-4o-mini', input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], stream: false }),
+                    body: JSON.stringify({ model, input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], stream: false }),
                     signal: AbortSignal.timeout(600000) });
                 if (!localResult.ok) {
                     const message = await localResult.text().catch(() => 'Cursor chat completion failed.');
                     throw new ProxyError(message.slice(0, 500), `cursor_upstream_${localResult.status}`, localResult.status);
                 }
                 const completion = responseText(await localResult.json());
-                const payload = connectEnvelope(encodeStreamChatResponse(completion));
+                const payloadParts = [connectEnvelope(encodeStreamChatResponse(completion))];
+                const requestType = String(request.headers['content-type'] || '').toLowerCase();
+                if (requestType.includes('grpc-web')) {
+                    payloadParts.push(connectEnvelope(Buffer.from('grpc-status: 0\r\n', 'ascii'), 0x80));
+                } else if (!requestType.includes('grpc')) {
+                    // Connect streaming RPCs finish with an end-stream
+                    // envelope carrying JSON metadata.
+                    payloadParts.push(connectEnvelope(Buffer.from('{"error":null}', 'utf8'), 0x02));
+                }
+                const payload = Buffer.concat(payloadParts);
                 response.writeHead(200, cursorProtoHeaders(request, { stream: true }));
                 response.end(payload);
                 return;

@@ -173,6 +173,23 @@ export function extractCursorChatPrompt(buffer) {
     return values.filter(value => value.length <= 20000).sort((a, b) => b.length - a.length)[0] || '';
 }
 
+export function extractCursorChatModel(buffer) {
+    const values = [];
+    const visit = (message, depth = 0) => {
+        if (depth > 8) return;
+        let items;
+        try { items = fields(message); } catch { return; }
+        for (const item of items) {
+            if (item.wireType !== 2 || !Buffer.isBuffer(item.value)) continue;
+            const text = item.value.toString('utf8').trim();
+            if (/^(?:gpt|o[134]|claude|gemini)[\w.-]*$/i.test(text)) values.push(text);
+            visit(item.value, depth + 1);
+        }
+    };
+    visit(buffer);
+    return values[0] || '';
+}
+
 export function encodeStreamChatResponse(text = '') {
     return fieldString(1, text);
 }
