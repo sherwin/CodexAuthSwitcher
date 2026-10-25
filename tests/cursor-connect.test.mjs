@@ -115,6 +115,15 @@ test('local Cursor auth and dashboard probes are answered without upstream login
     const profile = await fetch(`${base}/auth/full_stripe_profile`, { headers: { Authorization: 'Bearer injected-local-token' } });
     assert.equal(profile.status, 200);
     assert.equal((await profile.json()).membershipType, 'ultra');
+    const email = await fetch(`${base}/aiserver.v1.AuthService/GetEmail`, { method: 'POST', headers,
+        body: Buffer.alloc(0) });
+    assert.equal(email.status, 200);
+    assert.equal(email.headers.get('content-type'), 'application/proto');
+    assert.deepEqual([...new Uint8Array(await email.arrayBuffer())], [0x0a, 0x0d, ...Buffer.from('cursor@ai.com'), 0x10, 0x03]);
+    const session = await fetch(`${base}/aiserver.v1.AuthService/CheckSessionToken`, { method: 'POST', headers,
+        body: Buffer.alloc(0) });
+    assert.equal(session.status, 200);
+    assert.deepEqual([...new Uint8Array(await session.arrayBuffer())], [0x08, 0x01]);
     const models = await fetch(`${base}/aiserver.v1.AiService/AvailableModels`, { method: 'POST', headers, body: Buffer.from([0]) });
     assert.equal(models.status, 200);
     assert.equal(models.headers.get('content-type'), 'application/proto');

@@ -198,3 +198,18 @@ export function extractCursorChatModel(buffer) {
 export function encodeStreamChatResponse(text = '') {
     return fieldString(1, text);
 }
+
+// Cursor asks the local backend for a small amount of account metadata before
+// it enables Chat.  These unary AuthService responses intentionally contain
+// only the stable fields Cursor reads; no real Cursor account is contacted.
+export function encodeCursorGetEmailResponse(email = 'cursor@ai.com', signUpType = 3) {
+    return Buffer.concat([fieldString(1, email), varint(16), varint(signUpType)]);
+}
+
+export function encodeCursorSessionTokenResponse(token = '') {
+    return fieldString(1, token);
+}
+
+export function encodeCursorBoolResponse(value = true) {
+    return fieldBool(1, value);
+}

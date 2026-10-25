@@ -20,7 +20,8 @@ import { querySubscription } from './subscription.mjs';
 import { createRequestLog } from './request-log.mjs';
 import { decodeConnectEnvelopes, decodeStreamCppRequest, encodeStreamCppResponse,
     encodeAvailableModelsResponse, connectEnvelope, cursorPrompt, extractCursorChatPrompt, extractCursorChatModel,
-    encodeStreamChatResponse } from './cursor-connect.mjs';
+    encodeStreamChatResponse, encodeCursorGetEmailResponse, encodeCursorSessionTokenResponse,
+    encodeCursorBoolResponse } from './cursor-connect.mjs';
 
 const maxBody = 32 * 1024 * 1024;
 const retryableAuthCodes = new Set(['token_expired', 'invalid_token', 'token_invalidated']);
@@ -258,6 +259,8 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 /^\/aiserver\.v1\.(DashboardService|NetworkService)\/.+/.test(requestedPath);
             const cursorAvailableModels = request.method === 'POST' &&
                 /^\/aiserver\.v1\.(AiService|CppService)\/AvailableModels$/.test(requestedPath);
+            const cursorAuthRpc = request.method === 'POST' &&
+                /^\/aiserver\.v1\.AuthService\/(GetEmail|MarkPrivacy|GetSessionToken|CheckSessionToken|EmailValid|GetCustomerId)$/.test(requestedPath);
             const cursorAuth = requestedPath.startsWith('/auth/');
             const local = isLoopback(request.socket.remoteAddress);
             if (request.method === 'OPTIONS' && local) {
@@ -268,7 +271,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 return;
             }
             if (!authenticated(request, initial.key) && !(isLoopback(request.socket.remoteAddress) &&
-                (cursorConnect || cursorChat || cursorCppConfig || cursorDashboard || cursorAvailableModels || cursorAuth))) {
+                (cursorConnect || cursorChat || cursorCppConfig || cursorDashboard || cursorAvailableModels || cursorAuthRpc || cursorAuth))) {
                 sendJSON(response, 401, { error: { code: 'local_key_required', message: 'Local gateway authentication required.' } });
                 return;
             }
@@ -339,6 +342,21 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                     sendJSON(response, 200, { authenticated: true, status: 'active', email: 'cursor@ai.com' });
                     return;
                 }
+            }
+            if (cursorAuthRpc) {
+                // Connect unary responses are raw protobuf messages.  The
+                // injected local session is deliberately synthetic and is
+                // accepted only by this local gateway.
+                const authMethod = requestedPath.split('/').pop();
+                await rawBody(request);
+                let payload = Buffer.alloc(0);
+                if (authMethod === 'GetEmail') payload = encodeCursorGetEmailResponse();
+                else if (authMethod === 'GetSessionToken') payload = encodeCursorSessionTokenResponse(initial.key);
+                else if (authMethod === 'CheckSessionToken' || authMethod === 'EmailValid') payload = encodeCursorBoolResponse(true);
+                else if (authMethod === 'GetCustomerId') payload = encodeCursorSessionTokenResponse('local-customer');
+                response.writeHead(200, cursorProtoHeaders(request));
+                response.end(payload);
+                return;
             }
             if (cursorConnect) {
                 const envelopes = decodeConnectEnvelopes(await rawBody(request));
