@@ -245,12 +245,6 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             const cursorAvailableModels = request.method === 'POST' &&
                 /^\/aiserver\.v1\.(AiService|CppService)\/AvailableModels$/.test(requestedPath);
             const cursorAuth = requestedPath.startsWith('/auth/');
-            if (!authenticated(request, initial.key) && !(isLoopback(request.socket.remoteAddress) &&
-                (cursorConnect || cursorChat || cursorCppConfig || cursorDashboard || cursorAvailableModels || cursorAuth))) {
-                sendJSON(response, 401, { error: { code: 'local_key_required', message: 'Local gateway authentication required.' } });
-                return;
-            }
-            const url = new URL(request.url, 'http://127.0.0.1');
             const local = isLoopback(request.socket.remoteAddress);
             if (request.method === 'OPTIONS' && local) {
                 response.writeHead(204, { 'Access-Control-Allow-Origin': '*',
@@ -259,6 +253,12 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 response.end();
                 return;
             }
+            if (!authenticated(request, initial.key) && !(isLoopback(request.socket.remoteAddress) &&
+                (cursorConnect || cursorChat || cursorCppConfig || cursorDashboard || cursorAvailableModels || cursorAuth))) {
+                sendJSON(response, 401, { error: { code: 'local_key_required', message: 'Local gateway authentication required.' } });
+                return;
+            }
+            const url = new URL(request.url, 'http://127.0.0.1');
             if (!local && (!initial.lan_enabled || !isPrivateAddress(request.socket.remoteAddress))) {
                 throw new ProxyError('Only local network clients are allowed.', 'lan_access_denied', 403);
             }
