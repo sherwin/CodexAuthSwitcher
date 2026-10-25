@@ -71,9 +71,9 @@ export async function restoreCursorAuthState(file = cursorStateDatabase()) {
 export function candidateRoots(platform = process.platform, env = process.env) {
     if (platform === 'win32') return [
         env.CURSOR_INSTALL_DIR ? path.join(env.CURSOR_INSTALL_DIR, 'resources', 'app') : null,
+        'C:\\Installs\\cursor\\resources\\app',
         path.join(env.LOCALAPPDATA || '', 'Programs', 'cursor', 'resources', 'app'),
-        path.join(env.ProgramFiles || '', 'Cursor', 'resources', 'app'),
-        'C:\\Installs\\cursor\\resources\\app'
+        path.join(env.ProgramFiles || '', 'Cursor', 'resources', 'app')
     ].filter(Boolean);
     if (platform === 'darwin') return ['/Applications/Cursor.app/Contents/Resources/app',
         path.join(env.HOME || os.homedir(), 'Applications', 'Cursor.app', 'Contents', 'Resources', 'app')];
