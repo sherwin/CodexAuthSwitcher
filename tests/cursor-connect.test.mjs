@@ -5,7 +5,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createGateway } from '../proxy/server.mjs';
-import { decodeConnectEnvelopes, decodeStreamCppRequest, encodeStreamCppResponse,
+import { decodeConnectEnvelopes, decodeStreamCppRequest, encodeAvailableModelsResponse, encodeStreamCppResponse,
     connectEnvelope } from '../proxy/cursor-connect.mjs';
 import { candidateRoots, cursorStateDatabase, injectCursorAuthState, localCursorAuthValues,
     patchCursorSource, restoreCursorAuthState } from '../scripts/cursor-local.mjs';
@@ -33,6 +33,12 @@ test('round trips Connect envelopes and emits a StreamCpp response', () => {
     assert.equal(envelopes.length, 1);
     assert.equal(envelopes[0].flags, 0);
     assert.ok(envelopes[0].message.length > 0);
+});
+
+test('encodes a Cursor model picker response with configured model names', () => {
+    const payload = encodeAvailableModelsResponse(['local-model', 'gpt-4o-mini']);
+    assert.match(payload.toString('utf8'), /local-model/);
+    assert.match(payload.toString('utf8'), /gpt-4o-mini/);
 });
 
 test('Cursor patch locations and replacements work on Windows and macOS', () => {
@@ -90,7 +96,10 @@ test('local Cursor auth and dashboard probes are answered without upstream login
     await writeFile(path.join(auth, 'local.json'), JSON.stringify({ OPENAI_API_KEY: 'local' }));
     await writeFile(path.join(directory, 'proxy.json'), JSON.stringify({ key: 'test-key', port: 0, enabled: true,
         auth_directory: auth, selected_file: 'local.json' }));
-    const gateway = await createGateway(directory, { fetchUpstream: async () => { throw new Error('must stay local'); }, codexHome: directory });
+    const gateway = await createGateway(directory, { fetchUpstream: async url => {
+        if (String(url).endsWith('/models')) return Response.json({ data: [{ id: 'local-model' }] });
+        throw new Error('must stay local');
+    }, codexHome: directory });
     t.after(async () => { await gateway.close(); await rm(directory, { recursive: true, force: true }); });
     const base = `http://127.0.0.1:${gateway.server.address().port}`;
     const headers = { Authorization: 'Bearer injected-local-token', 'Content-Type': 'application/connect+proto' };
@@ -100,4 +109,7 @@ test('local Cursor auth and dashboard probes are answered without upstream login
     const profile = await fetch(`${base}/auth/full_stripe_profile`, { headers: { Authorization: 'Bearer injected-local-token' } });
     assert.equal(profile.status, 200);
     assert.equal((await profile.json()).membershipType, 'ultra');
+    const models = await fetch(`${base}/aiserver.v1.AiService/AvailableModels`, { method: 'POST', headers, body: Buffer.from([0]) });
+    assert.equal(models.status, 200);
+    assert.match(Buffer.from(await models.arrayBuffer()).toString('utf8'), /local-model/);
 });

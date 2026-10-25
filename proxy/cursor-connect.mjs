@@ -108,6 +108,24 @@ export function encodeStreamCppResponse({ text = '', doneStream = false, doneEdi
     return Buffer.concat(parts);
 }
 
+// AvailableModelsResponse is deliberately encoded with the stable fields
+// Cursor uses for the model picker. Unknown optional fields can be omitted;
+// protobuf clients must treat them as their defaults.
+export function encodeAvailableModelsResponse(modelNames = []) {
+    const names = [...new Set(modelNames.filter(name => typeof name === 'string' && name.trim()))];
+    if (!names.length) names.push('gpt-4o-mini');
+    const modelEntries = names.map(name => fieldMessage(2, Buffer.concat([
+        fieldString(1, name), fieldBool(2, true), fieldString(17, name), fieldString(18, name)
+    ])));
+    const config = Buffer.concat([fieldString(1, names[0]), ...names.slice(1).map(name => fieldString(2, name))]);
+    return Buffer.concat([
+        ...names.map(name => fieldString(1, name)),
+        ...modelEntries,
+        fieldMessage(4, config), fieldMessage(5, config), fieldMessage(6, config),
+        fieldBool(11, true)
+    ]);
+}
+
 export function decodeConnectEnvelopes(buffer) {
     const messages = [];
     let offset = 0;

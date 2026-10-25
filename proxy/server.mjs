@@ -19,7 +19,7 @@ import { TokenStatistics, usageAccount, normalizedUsage } from './statistics.mjs
 import { querySubscription } from './subscription.mjs';
 import { createRequestLog } from './request-log.mjs';
 import { decodeConnectEnvelopes, decodeStreamCppRequest, encodeStreamCppResponse,
-    connectEnvelope, cursorPrompt } from './cursor-connect.mjs';
+    encodeAvailableModelsResponse, connectEnvelope, cursorPrompt } from './cursor-connect.mjs';
 
 const maxBody = 32 * 1024 * 1024;
 const retryableAuthCodes = new Set(['token_expired', 'invalid_token', 'token_invalidated']);
@@ -221,8 +221,11 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 /^\/aiserver\.v1\.AiService\/(StreamCpp|CppConfig)$/.test(requestedPath);
             const cursorDashboard = request.method === 'POST' &&
                 /^\/aiserver\.v1\.(DashboardService|NetworkService)\/.+/.test(requestedPath);
+            const cursorAvailableModels = request.method === 'POST' &&
+                /^\/aiserver\.v1\.(AiService|CppService)\/AvailableModels$/.test(requestedPath);
             const cursorAuth = requestedPath.startsWith('/auth/');
-            if (!authenticated(request, initial.key) && !(isLoopback(request.socket.remoteAddress) && (cursorConnect || cursorDashboard || cursorAuth))) {
+            if (!authenticated(request, initial.key) && !(isLoopback(request.socket.remoteAddress) &&
+                (cursorConnect || cursorDashboard || cursorAvailableModels || cursorAuth))) {
                 sendJSON(response, 401, { error: { code: 'local_key_required', message: 'Local gateway authentication required.' } });
                 return;
             }
@@ -244,6 +247,28 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             // defaults and proceeds to the configured completion endpoint.
             if (cursorDashboard) {
                 const payload = connectEnvelope(Buffer.alloc(0));
+                response.writeHead(200, { 'Content-Type': 'application/connect+proto',
+                    'Connect-Protocol-Version': '1', 'Cache-Control': 'no-store' });
+                response.end(payload);
+                return;
+            }
+            if (cursorAvailableModels) {
+                let modelNames = [];
+                const selected = state.selected_file ? await credentials.get(accountPath(state, state.selected_file)).catch(() => null) : null;
+                if (selected) {
+                    try {
+                        const target = upstream(selected, 'models');
+                        const modelResponse = await fetchUpstream(target.url, { headers: { Authorization: `Bearer ${target.token}` },
+                            redirect: 'manual', signal: AbortSignal.timeout(20000) });
+                        if (modelResponse.ok) {
+                            const catalog = await modelResponse.json();
+                            const entries = Array.isArray(catalog) ? catalog : catalog.data || catalog.models || [];
+                            modelNames = entries.map(item => typeof item === 'string' ? item : item?.id || item?.slug)
+                                .filter(name => typeof name === 'string');
+                        }
+                    } catch { /* Keep the local fallback when a provider has no model endpoint. */ }
+                }
+                const payload = connectEnvelope(encodeAvailableModelsResponse(modelNames));
                 response.writeHead(200, { 'Content-Type': 'application/connect+proto',
                     'Connect-Protocol-Version': '1', 'Cache-Control': 'no-store' });
                 response.end(payload);
