@@ -81,14 +81,19 @@ export function candidateRoots(platform = process.platform, env = process.env) {
 }
 
 export function patchCursorSource(source, url = localUrl) {
-    if (source.includes(url)) return source;
+    const upstreamHosts = ['https://api4.cursor.sh', 'https://api3.cursor.sh', 'https://api2.cursor.sh', 'https://api.cursor.com'];
+    // An older build may already have api4 pointed at the gateway while api2
+    // and api3 are still official. Only skip when every supported upstream
+    // host is absent, so re-enabling repairs a partially patched workbench.
+    if (!upstreamHosts.some(host => source.includes(host))) return source;
+    // Cursor splits completion, account and dashboard traffic across these
+    // hosts. Replacing only api4 leaves the login/session probes on api2 and
+    // api3, which makes the injected local session look unauthenticated.
     const replacements = [
-        ['ykt="https://api4.cursor.sh"', `ykt="${url}"`],
-        ['SWe="https://api4.cursor.sh"', `SWe="${url}"`],
-        // Cursor renamed the minified variable names in newer releases. The
-        // native completion and completion-config backends still use the
-        // api4 host, so replace those URL literals without relying on names.
-        ['https://api4.cursor.sh', url]
+        ['https://api4.cursor.sh', url],
+        ['https://api3.cursor.sh', url],
+        ['https://api2.cursor.sh', url],
+        ['https://api.cursor.com', url]
     ];
     let result = source;
     for (const [from, to] of replacements) result = result.replaceAll(from, to);

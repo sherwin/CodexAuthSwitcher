@@ -219,7 +219,10 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             const requestedPath = new URL(request.url, 'http://127.0.0.1').pathname;
             const cursorConnect = request.method === 'POST' &&
                 /^\/aiserver\.v1\.AiService\/(StreamCpp|CppConfig)$/.test(requestedPath);
-            if (!authenticated(request, initial.key) && !(cursorConnect && isLoopback(request.socket.remoteAddress))) {
+            const cursorDashboard = request.method === 'POST' &&
+                /^\/aiserver\.v1\.(DashboardService|NetworkService)\/.+/.test(requestedPath);
+            const cursorAuth = requestedPath.startsWith('/auth/');
+            if (!authenticated(request, initial.key) && !(isLoopback(request.socket.remoteAddress) && (cursorConnect || cursorDashboard || cursorAuth))) {
                 sendJSON(response, 401, { error: { code: 'local_key_required', message: 'Local gateway authentication required.' } });
                 return;
             }
@@ -233,6 +236,34 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             }
             const state = await readJSON(statePath);
             if (url.search) throw new ProxyError('Query parameters are unsupported.', 'unsupported_route', 404);
+            // Cursor performs these account and entitlement probes before it
+            // opens the completion stream. They must terminate locally so a
+            // fake local session is not rejected by api2/api3. Connect's
+            // length-prefixed empty protobuf is valid for the unary replies;
+            // Cursor treats omitted optional fields as the local free/ultra
+            // defaults and proceeds to the configured completion endpoint.
+            if (cursorDashboard) {
+                const payload = connectEnvelope(Buffer.alloc(0));
+                response.writeHead(200, { 'Content-Type': 'application/connect+proto',
+                    'Connect-Protocol-Version': '1', 'Cache-Control': 'no-store' });
+                response.end(payload);
+                return;
+            }
+            if (cursorAuth) {
+                if (request.method === 'GET' && /\/auth\/(full_stripe_profile|stripe_profile)$/.test(requestedPath)) {
+                    sendJSON(response, 200, { membershipType: 'ultra', subscriptionStatus: 'active',
+                        hasValidPaymentMethod: true, email: 'cursor@ai.com' });
+                    return;
+                }
+                if (requestedPath === '/auth/has_valid_payment_method') {
+                    sendJSON(response, 200, { hasValidPaymentMethod: true });
+                    return;
+                }
+                if (requestedPath === '/auth/poll') {
+                    sendJSON(response, 200, { authenticated: true, status: 'active', email: 'cursor@ai.com' });
+                    return;
+                }
+            }
             if (cursorConnect) {
                 const envelopes = decodeConnectEnvelopes(await rawBody(request));
                 if (envelopes.length !== 1 || envelopes[0].flags !== 0)

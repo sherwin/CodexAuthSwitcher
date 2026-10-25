@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createGateway } from '../proxy/server.mjs';
 import { decodeConnectEnvelopes, decodeStreamCppRequest, encodeStreamCppResponse,
     connectEnvelope } from '../proxy/cursor-connect.mjs';
 import { candidateRoots, cursorStateDatabase, injectCursorAuthState, localCursorAuthValues,
@@ -43,14 +44,20 @@ test('Cursor patch locations and replacements work on Windows and macOS', () => 
 });
 
 test('Cursor newer minified backend constants are patched without login changes', () => {
-    const source = 'auth="https://api.cursor.com";prr="https://api4.cursor.sh";j6n="https://api4.cursor.sh"';
+    const source = 'auth="https://api.cursor.com";a="https://api2.cursor.sh";b="https://api3.cursor.sh";prr="https://api4.cursor.sh";j6n="https://api4.cursor.sh"';
     const patched = patchCursorSource(source, 'http://127.0.0.1:18888');
-    assert.equal(patched, 'auth="https://api.cursor.com";prr="http://127.0.0.1:18888";j6n="http://127.0.0.1:18888"');
+    assert.equal(patched, 'auth="http://127.0.0.1:18888";a="http://127.0.0.1:18888";b="http://127.0.0.1:18888";prr="http://127.0.0.1:18888";j6n="http://127.0.0.1:18888"');
 });
 
 test('Cursor patch is idempotent after an earlier local enable', () => {
     const source = 'prr="http://127.0.0.1:18888";j6n="http://127.0.0.1:18888"';
     assert.equal(patchCursorSource(source, 'http://127.0.0.1:18888'), source);
+});
+
+test('Cursor patch repairs a workbench that only had api4 replaced', () => {
+    const source = 'a="https://api2.cursor.sh";b="https://api3.cursor.sh";c="http://127.0.0.1:18888"';
+    assert.equal(patchCursorSource(source, 'http://127.0.0.1:18888'),
+        'a="http://127.0.0.1:18888";b="http://127.0.0.1:18888";c="http://127.0.0.1:18888"');
 });
 
 test('Cursor local auth state is injected with a recoverable backup', async () => {
@@ -74,4 +81,23 @@ test('Cursor local auth state is injected with a recoverable backup', async () =
         assert.ok((await readFile(`${file}.codex-auth-switcher-cursor-auth-backup`)).length > 0);
         assert.equal((await restoreCursorAuthState(file)).restored, true);
     } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('local Cursor auth and dashboard probes are answered without upstream login', async t => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'cursor-gateway-test-'));
+    const auth = path.join(directory, 'auth');
+    await mkdir(auth);
+    await writeFile(path.join(auth, 'local.json'), JSON.stringify({ OPENAI_API_KEY: 'local' }));
+    await writeFile(path.join(directory, 'proxy.json'), JSON.stringify({ key: 'test-key', port: 0, enabled: true,
+        auth_directory: auth, selected_file: 'local.json' }));
+    const gateway = await createGateway(directory, { fetchUpstream: async () => { throw new Error('must stay local'); }, codexHome: directory });
+    t.after(async () => { await gateway.close(); await rm(directory, { recursive: true, force: true }); });
+    const base = `http://127.0.0.1:${gateway.server.address().port}`;
+    const headers = { Authorization: 'Bearer injected-local-token', 'Content-Type': 'application/connect+proto' };
+    const dashboard = await fetch(`${base}/aiserver.v1.DashboardService/GetMe`, { method: 'POST', headers, body: Buffer.from([0]) });
+    assert.equal(dashboard.status, 200);
+    assert.equal(decodeConnectEnvelopes(Buffer.from(await dashboard.arrayBuffer())).length, 1);
+    const profile = await fetch(`${base}/auth/full_stripe_profile`, { headers: { Authorization: 'Bearer injected-local-token' } });
+    assert.equal(profile.status, 200);
+    assert.equal((await profile.json()).membershipType, 'ultra');
 });
