@@ -81,6 +81,7 @@ export function candidateRoots(platform = process.platform, env = process.env) {
 }
 
 export function patchCursorSource(source, url = localUrl) {
+    if (source.includes(url)) return source;
     const replacements = [
         ['ykt="https://api4.cursor.sh"', `ykt="${url}"`],
         ['SWe="https://api4.cursor.sh"', `SWe="${url}"`],

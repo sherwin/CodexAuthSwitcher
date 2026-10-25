@@ -48,6 +48,11 @@ test('Cursor newer minified backend constants are patched without login changes'
     assert.equal(patched, 'auth="https://api.cursor.com";prr="http://127.0.0.1:18888";j6n="http://127.0.0.1:18888"');
 });
 
+test('Cursor patch is idempotent after an earlier local enable', () => {
+    const source = 'prr="http://127.0.0.1:18888";j6n="http://127.0.0.1:18888"';
+    assert.equal(patchCursorSource(source, 'http://127.0.0.1:18888'), source);
+});
+
 test('Cursor local auth state is injected with a recoverable backup', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'cursor-auth-test-'));
     const file = path.join(directory, 'state.vscdb');
