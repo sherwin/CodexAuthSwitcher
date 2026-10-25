@@ -80,9 +80,11 @@ else {
             if (!['enable', 'disable'].includes(action)) throw new Error('Unsupported Cursor action.');
             const cursor = await import('../scripts/cursor-local.mjs');
             const target = await cursor.locateCursorTarget();
-            return target.type === 'asar' ? cursor.patchAsar(target.file, action, `http://127.0.0.1:${state.port}`)
-                : action === 'enable' ? cursor.enableCursor(target.file, `http://127.0.0.1:${state.port}`)
-                    : cursor.disableCursor(target.file);
+            const result = target.type === 'asar' ? await cursor.patchAsar(target.file, action, `http://127.0.0.1:${state.port}`)
+                : action === 'enable' ? await cursor.enableCursor(target.file, `http://127.0.0.1:${state.port}`)
+                    : await cursor.disableCursor(target.file);
+            const auth = action === 'enable' ? await cursor.injectCursorAuthState() : await cursor.restoreCursorAuthState();
+            return { ...result, auth };
         });
         ipcMain.handle('choose-directory', async () => {
             if (networkBusy) throw new Error('网络设置正在更新。');
