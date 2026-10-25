@@ -5,4 +5,5 @@ contextBridge.exposeInMainWorld('authSwitcher', Object.freeze({
     chooseDirectory: () => ipcRenderer.invoke('choose-directory'),
     curlCommand: (action, target, stream) => ipcRenderer.invoke('curl-command', action, target, stream),
     networkSettings: input => ipcRenderer.invoke('network-settings', input)
+    ,cursorConfigure: action => ipcRenderer.invoke('cursor-configure', action)
 }));

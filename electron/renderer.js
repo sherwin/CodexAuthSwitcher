@@ -105,6 +105,7 @@ function selectWorkspace(tab) {
     }
     document.querySelector('#proxy-page').hidden = tab !== 'proxy';
     document.querySelector('#codex-page').hidden = tab !== 'codex';
+    document.querySelector('#cursor-page').hidden = tab !== 'cursor';
     document.querySelector('#open-statistics').hidden = tab !== 'proxy';
 }
 
@@ -529,12 +530,12 @@ async function switchAccount(name) {
 document.querySelector('#refresh').addEventListener('click', refresh);
 document.querySelector('#workspace-tabs').addEventListener('click', event => {
     const button = event.target.closest('button[role=tab]');
-    if (button) selectWorkspace(button.id === 'tab-proxy' ? 'proxy' : 'codex');
+    if (button) selectWorkspace(button.id === 'tab-proxy' ? 'proxy' : button.id === 'tab-cursor' ? 'cursor' : 'codex');
 });
 document.querySelector('#workspace-tabs').addEventListener('keydown', event => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
-    const tab = event.key === 'Home' ? 'proxy' : event.key === 'End' ? 'codex' : event.target.id === 'tab-proxy' ? 'codex' : 'proxy';
+    const tab = event.key === 'Home' ? 'proxy' : event.key === 'End' ? 'cursor' : event.target.id === 'tab-proxy' ? 'codex' : event.target.id === 'tab-codex' ? 'cursor' : 'proxy';
     selectWorkspace(tab);
     document.querySelector('#tab-' + tab).focus();
 });
@@ -544,6 +545,22 @@ document.querySelector('#codex-modes').addEventListener('click', event => {
     codexMode = button.dataset.mode;
     renderCodexMode();
 });
+async function configureCursor(action) {
+    const status = document.querySelector('#cursor-status');
+    const enable = document.querySelector('#cursor-enable');
+    const disable = document.querySelector('#cursor-disable');
+    enable.disabled = disable.disabled = true;
+    status.textContent = action === 'enable' ? '正在备份并配置 Cursor…' : '正在恢复 Cursor 官方补全…';
+    try {
+        const result = await api.cursorConfigure(action);
+        status.textContent = action === 'enable'
+            ? `已启用本地补全代理：${result.baseUrl}。请重新打开 Cursor。`
+            : '已恢复 Cursor 官方补全。请重新打开 Cursor。';
+    } catch (error) { status.textContent = `操作失败：${error.message}`; }
+    finally { enable.disabled = disable.disabled = false; }
+}
+document.querySelector('#cursor-enable').addEventListener('click', () => configureCursor('enable'));
+document.querySelector('#cursor-disable').addEventListener('click', () => configureCursor('disable'));
 document.querySelector('#unconfigure').addEventListener('click', async () => {
     busy = true;
     renderCodexMode();

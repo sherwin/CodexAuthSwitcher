@@ -75,6 +75,15 @@ else {
                 return { ok: true, result };
             } catch (error) { return { ok: false, error: error.message, code: error.code || 'proxy_unavailable' }; }
         });
+        ipcMain.handle('cursor-configure', async (_event, action) => {
+            if (networkBusy) throw new Error('网络设置正在更新。');
+            if (!['enable', 'disable'].includes(action)) throw new Error('Unsupported Cursor action.');
+            const cursor = await import('../scripts/cursor-local.mjs');
+            const target = await cursor.locateCursorTarget();
+            return target.type === 'asar' ? cursor.patchAsar(target.file, action, `http://127.0.0.1:${state.port}`)
+                : action === 'enable' ? cursor.enableCursor(target.file, `http://127.0.0.1:${state.port}`)
+                    : cursor.disableCursor(target.file);
+        });
         ipcMain.handle('choose-directory', async () => {
             if (networkBusy) throw new Error('网络设置正在更新。');
             const choice = await dialog.showOpenDialog(window, { title: 'Choose authorization backup directory', properties: ['openDirectory'] });

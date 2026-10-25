@@ -6,7 +6,9 @@
   "author": "sherwin",
   "type": "module",
   "main": "electron/main.cjs",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "electron .",
     "proxy": "node proxy/server.mjs serve",
@@ -20,6 +22,7 @@
     "dist": "electron-builder"
   },
   "dependencies": {
+    "@electron/asar": "^3.4.1",
     "@iarna/toml": "2.2.5",
     "proper-lockfile": "4.1.2",
     "sql.js": "^1.15.1",
@@ -32,11 +35,32 @@
   "build": {
     "appId": "com.sherwin.codex-auth-switcher.electron",
     "productName": "Codex Auth Switcher",
-    "files": ["electron/**/*", "proxy/**/*", "package.json"],
-    "mac": { "target": "dir", "category": "public.app-category.developer-tools", "icon": "electron/assets/icon.icns" },
-    "win": { "target": "nsis", "icon": "electron/assets/icon.ico" },
-    "linux": { "target": "AppImage", "icon": "electron/assets/icon.png" },
-    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true, "createStartMenuShortcut": true, "shortcutName": "Codex Auth Switcher" }
+    "files": [
+      "electron/**/*",
+      "proxy/**/*",
+      "scripts/cursor-local.mjs",
+      "package.json"
+    ],
+    "mac": {
+      "target": "dir",
+      "category": "public.app-category.developer-tools",
+      "icon": "electron/assets/icon.icns"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "electron/assets/icon.ico"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "electron/assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Codex Auth Switcher"
+    }
   }
 }

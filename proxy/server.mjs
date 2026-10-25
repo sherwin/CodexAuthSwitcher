@@ -18,6 +18,8 @@ import { eventObserver } from './sse.mjs';
 import { TokenStatistics, usageAccount, normalizedUsage } from './statistics.mjs';
 import { querySubscription } from './subscription.mjs';
 import { createRequestLog } from './request-log.mjs';
+import { decodeConnectEnvelopes, decodeStreamCppRequest, encodeStreamCppResponse,
+    connectEnvelope, cursorPrompt } from './cursor-connect.mjs';
 
 const maxBody = 32 * 1024 * 1024;
 const retryableAuthCodes = new Set(['token_expired', 'invalid_token', 'token_invalidated']);
@@ -76,6 +78,24 @@ async function bodyJSON(request) {
         if (!value || Array.isArray(value) || typeof value !== 'object') throw new Error();
         return value;
     } catch { const error = new ProxyError('Expected a JSON object.', 'invalid_body', 400); error.requestBody = Buffer.concat(chunks).toString('utf8'); throw error; }
+}
+
+async function rawBody(request) {
+    let size = 0;
+    const chunks = [];
+    for await (const chunk of request) {
+        size += chunk.length;
+        if (size > maxBody) throw new ProxyError('Request body too large.', 'body_too_large', 413);
+        chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+}
+
+function responseText(value) {
+    const output = Array.isArray(value?.output) ? value.output : [];
+    return output.flatMap(item => Array.isArray(item?.content) ? item.content : [])
+        .filter(item => item?.type === 'output_text' && typeof item.text === 'string')
+        .map(item => item.text).join('');
 }
 
 function sendJSON(response, status, value, extraHeaders = {}) {
@@ -196,7 +216,10 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
         response.write = (chunk, ...args) => { if (chunk && responseChunks.reduce((n, b) => n + b.length, 0) < maxBody) responseChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)); return originalWrite(chunk, ...args); };
         response.end = (chunk, ...args) => { if (chunk && responseChunks.reduce((n, b) => n + b.length, 0) < maxBody) responseChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)); return originalEnd(chunk, ...args); };
         try {
-            if (!authenticated(request, initial.key)) {
+            const requestedPath = new URL(request.url, 'http://127.0.0.1').pathname;
+            const cursorConnect = request.method === 'POST' &&
+                /^\/aiserver\.v1\.AiService\/(StreamCpp|CppConfig)$/.test(requestedPath);
+            if (!authenticated(request, initial.key) && !(cursorConnect && isLoopback(request.socket.remoteAddress))) {
                 sendJSON(response, 401, { error: { code: 'local_key_required', message: 'Local gateway authentication required.' } });
                 return;
             }
@@ -210,6 +233,49 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             }
             const state = await readJSON(statePath);
             if (url.search) throw new ProxyError('Query parameters are unsupported.', 'unsupported_route', 404);
+            if (cursorConnect) {
+                const envelopes = decodeConnectEnvelopes(await rawBody(request));
+                if (envelopes.length !== 1 || envelopes[0].flags !== 0)
+                    throw new ProxyError('Cursor Connect request envelope is unsupported.', 'invalid_cursor_request', 400);
+                const input = envelopes[0].message;
+                if (url.pathname.endsWith('/CppConfig')) {
+                    // CppConfigResponse: above_radius=1, below_radius=1, is_on=true,
+                    // is_ghost_text=true. The adapter keeps Cursor's native UI path alive.
+                    const config = Buffer.concat([Buffer.from([0x08, 0x01]), Buffer.from([0x10, 0x01]), Buffer.from([0x28, 0x01]), Buffer.from([0x30, 0x01])]);
+                    const payload = connectEnvelope(config);
+                    response.writeHead(200, { 'Content-Type': 'application/connect+proto',
+                        'Connect-Protocol-Version': '1', 'Cache-Control': 'no-store' });
+                    response.end(payload);
+                    return;
+                }
+                const cursor = decodeStreamCppRequest(input);
+                const prompt = cursorPrompt(cursor);
+                const localPort = server.address()?.port;
+                if (!localPort) throw new ProxyError('本地代理尚未监听端口。', 'proxy_not_ready', 503);
+                // Cursor sends internal names such as "main" and "turbo". They
+                // are not OpenAI model IDs, so route them through a compatible
+                // local model while preserving explicit OpenAI-compatible IDs.
+                const model = /^(main|turbo|default)$/i.test(cursor.model || '')
+                    ? 'gpt-4o-mini' : (cursor.model || 'gpt-4o-mini');
+                const localResult = await undiciFetch(`http://127.0.0.1:${localPort}/v1/responses`, {
+                    method: 'POST', headers: { Authorization: `Bearer ${initial.key}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model, input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], stream: false }),
+                    signal: AbortSignal.timeout(600000) });
+                if (!localResult.ok) {
+                    const message = await localResult.text().catch(() => 'Cursor completion failed.');
+                    throw new ProxyError(message.slice(0, 500), `cursor_upstream_${localResult.status}`, localResult.status);
+                }
+                const completion = responseText(await localResult.json());
+                const line = Math.max(1, cursor.line + 1);
+                const payload = Buffer.concat([
+                    connectEnvelope(encodeStreamCppResponse({ text: completion, startLine: line, endLine: line })),
+                    connectEnvelope(encodeStreamCppResponse({ doneStream: true, doneEdit: true, startLine: line, endLine: line }))
+                ]);
+                response.writeHead(200, { 'Content-Type': 'application/connect+proto',
+                    'Connect-Protocol-Version': '1', 'Cache-Control': 'no-store' });
+                response.end(payload);
+                return;
+            }
             if (url.pathname === '/health' && request.method === 'GET') {
                 const selected = state.selected_file
                     ? await readJSON(accountPath(state, state.selected_file)).catch(() => null) : null;

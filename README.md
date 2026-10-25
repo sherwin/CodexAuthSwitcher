@@ -63,6 +63,25 @@ Already-loaded connections cannot be changed by writing files. Later proxy accou
 affect new requests immediately. Applying Key mode remains available for repair and newly imported histories.
 The renderer never receives access tokens, refresh tokens, or the gateway key.
 
+### Cursor native completion (Windows and macOS)
+
+The Cursor tab-completion path uses Cursor's Connect/Protobuf `StreamCpp` protocol;
+an OpenAI-compatible Base URL alone cannot redirect it. The desktop app therefore
+includes a **Cursor 配置** tab. Close Cursor completely, choose **启用本地补全代理**,
+then reopen Cursor. The tool backs up the installed workbench file and changes only
+the native C++ completion and completion-config endpoints to the local gateway.
+Login, chat, and other Cursor endpoints remain on Cursor's servers. **恢复 Cursor
+官方补全** restores the backup. The same action is available from the command line:
+
+```bash
+node scripts/cursor-local.mjs enable
+node scripts/cursor-local.mjs disable
+```
+
+The script supports the standard Windows and macOS install locations, including
+`app.asar`. Cursor updates replace the workbench file or archive; run enable again
+after an update.
+
 In any Codex mode, expand **curl 调用示例** for a masked Responses request (ordinary JSON by default).
 Choose **流式 SSE** to copy a streaming request instead.
 The **复制** button attached to the command copies a runnable command with the real local key
