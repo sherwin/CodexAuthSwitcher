@@ -18,12 +18,27 @@ if (-not (Test-Path (Join-Path $sourceRoot 'node_modules'))) {
 
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
 
-npm exec electron-builder -- --win dir --config.directories.output="$outputRoot"
+$builder = Join-Path $sourceRoot 'node_modules\.bin\electron-builder.cmd'
+if (-not (Test-Path -LiteralPath $builder)) {
+  throw "electron-builder CLI was not installed: $builder"
+}
+
+# Call the locally installed CLI directly. npm exec can keep its wrapper
+# process alive after electron-builder has finished on Windows, which makes
+# the build appear to hang before the staging directory is checked.
+& $builder --win dir "--config.directories.output=$outputRoot" --config.compression=store
+if ($LASTEXITCODE -ne 0) {
+  throw "electron-builder failed with exit code: $LASTEXITCODE"
+}
 
 $builtDir = Join-Path $outputRoot 'win-unpacked'
 $builtExe = Join-Path $builtDir 'Codex Auth Switcher.exe'
 if (-not (Test-Path $builtExe)) {
   throw "Build completed but executable was not found: $builtExe"
+}
+$builtAsar = Join-Path $builtDir 'resources\app.asar'
+if (-not (Test-Path -LiteralPath $builtAsar)) {
+  throw "Build completed but app.asar was not found: $builtAsar"
 }
 
 $running = Get-Process -Name 'Codex Auth Switcher' -ErrorAction SilentlyContinue
