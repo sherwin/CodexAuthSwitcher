@@ -19,7 +19,8 @@ import { TokenStatistics, usageAccount, normalizedUsage } from './statistics.mjs
 import { querySubscription } from './subscription.mjs';
 import { createRequestLog } from './request-log.mjs';
 import { decodeConnectEnvelopes, decodeStreamCppRequest, encodeStreamCppResponse,
-    encodeAvailableModelsResponse, connectEnvelope, cursorPrompt } from './cursor-connect.mjs';
+    encodeAvailableModelsResponse, connectEnvelope, cursorPrompt, extractCursorChatPrompt,
+    encodeStreamChatResponse } from './cursor-connect.mjs';
 
 const maxBody = 32 * 1024 * 1024;
 const retryableAuthCodes = new Set(['token_expired', 'invalid_token', 'token_invalidated']);
@@ -232,6 +233,8 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             const requestedPath = new URL(request.url, 'http://127.0.0.1').pathname;
             const cursorConnect = request.method === 'POST' &&
                 /^\/aiserver\.v1\.AiService\/StreamCpp$/.test(requestedPath);
+            const cursorChat = request.method === 'POST' &&
+                /^\/aiserver\.v1\.AiService\/StreamChat(?:Web|TryReallyHard)?$/.test(requestedPath);
             const cursorCppConfig = request.method === 'POST' &&
                 requestedPath === '/aiserver.v1.AiService/CppConfig';
             const cursorDashboard = request.method === 'POST' &&
@@ -240,7 +243,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 /^\/aiserver\.v1\.(AiService|CppService)\/AvailableModels$/.test(requestedPath);
             const cursorAuth = requestedPath.startsWith('/auth/');
             if (!authenticated(request, initial.key) && !(isLoopback(request.socket.remoteAddress) &&
-                (cursorConnect || cursorCppConfig || cursorDashboard || cursorAvailableModels || cursorAuth))) {
+                (cursorConnect || cursorChat || cursorCppConfig || cursorDashboard || cursorAvailableModels || cursorAuth))) {
                 sendJSON(response, 401, { error: { code: 'local_key_required', message: 'Local gateway authentication required.' } });
                 return;
             }
@@ -341,6 +344,27 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                     connectEnvelope(encodeStreamCppResponse({ text: completion, startLine: line, endLine: line })),
                     connectEnvelope(encodeStreamCppResponse({ doneStream: true, doneEdit: true, startLine: line, endLine: line }))
                 ]);
+                response.writeHead(200, cursorProtoHeaders(request, { stream: true }));
+                response.end(payload);
+                return;
+            }
+            if (cursorChat) {
+                const envelopes = decodeConnectEnvelopes(await rawBody(request));
+                if (envelopes.length !== 1 || envelopes[0].flags !== 0)
+                    throw new ProxyError('Cursor Chat Connect request envelope is unsupported.', 'invalid_cursor_request', 400);
+                const prompt = extractCursorChatPrompt(envelopes[0].message) || 'Reply with exactly: LOCAL_CURSOR_REPLY';
+                const localPort = server.address()?.port;
+                if (!localPort) throw new ProxyError('本地代理尚未监听端口。', 'proxy_not_ready', 503);
+                const localResult = await undiciFetch(`http://127.0.0.1:${localPort}/v1/responses`, {
+                    method: 'POST', headers: { Authorization: `Bearer ${initial.key}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: 'gpt-4o-mini', input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], stream: false }),
+                    signal: AbortSignal.timeout(600000) });
+                if (!localResult.ok) {
+                    const message = await localResult.text().catch(() => 'Cursor chat completion failed.');
+                    throw new ProxyError(message.slice(0, 500), `cursor_upstream_${localResult.status}`, localResult.status);
+                }
+                const completion = responseText(await localResult.json());
+                const payload = connectEnvelope(encodeStreamChatResponse(completion));
                 response.writeHead(200, cursorProtoHeaders(request, { stream: true }));
                 response.end(payload);
                 return;

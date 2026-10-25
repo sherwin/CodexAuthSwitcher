@@ -152,3 +152,27 @@ export function cursorPrompt(request) {
         `File: ${request.path || 'untitled'}`, `Language: ${request.path?.split('.').pop() || 'text'}`,
         `Cursor line: ${line + 1}, column: ${request.column}`, '```', prefix, '```'].join('\n');
 }
+
+// Chat requests contain many nested protobuf messages.  The human prompt is
+// represented as one or more UTF-8 length-delimited fields, so collect the
+// readable leaves and use the longest recent value as a provider prompt.
+export function extractCursorChatPrompt(buffer) {
+    const values = [];
+    const visit = (message, depth = 0) => {
+        if (depth > 8) return;
+        let items;
+        try { items = fields(message); } catch { return; }
+        for (const item of items) {
+            if (item.wireType !== 2 || !Buffer.isBuffer(item.value)) continue;
+            const text = item.value.toString('utf8');
+            if (text && !text.includes('\u0000') && /[\p{L}\p{N}]/u.test(text)) values.push(text);
+            visit(item.value, depth + 1);
+        }
+    };
+    visit(buffer);
+    return values.filter(value => value.length <= 20000).sort((a, b) => b.length - a.length)[0] || '';
+}
+
+export function encodeStreamChatResponse(text = '') {
+    return fieldString(1, text);
+}
