@@ -26,7 +26,7 @@ async function scenario(options, run) {
         attempts.push(name);
         if (name === options.success) return new Response(JSON.stringify({ id: 'ok', output: [] }),
             { headers: { 'content-type': 'application/json' } });
-        return new Response(JSON.stringify(quota), { status: 429, headers: { 'content-type': 'application/json' } });
+        return new Response(options.errorBody || JSON.stringify(quota), { status: 429, headers: { 'content-type': 'application/json' } });
     } });
     try {
         const response = await fetch(`http://127.0.0.1:${gateway.server.address().port}/v1/responses`, {
@@ -64,5 +64,12 @@ test('switching remains disabled when explicitly turned off', async () => {
     await scenario({ enabled: false, success: 'b.json' }, async ({ response, attempts }) => {
         assert.equal(response.status, 429);
         assert.deepEqual(attempts, ['a.json']);
+    });
+});
+
+test('429 retry-limit responses switch internally', async () => {
+    await scenario({ success: 'b.json', errorBody: 'exceeded retry limit, last status: 429 Too Many Requests' }, async ({ response, attempts }) => {
+        assert.equal(response.status, 200);
+        assert.deepEqual(attempts, ['a.json', 'b.json']);
     });
 });

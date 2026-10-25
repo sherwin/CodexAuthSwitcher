@@ -32,7 +32,7 @@ async function quotaExhausted(response) {
     if (!response || response.ok || response.status !== 429) return false;
     try {
         const body = await response.clone().text();
-        return /usage_limit_reached|insufficient_quota|usage limit has been reached/i.test(body);
+        return /usage_limit_reached|insufficient_quota|usage limit has been reached|exceeded retry limit|too many requests/i.test(body);
     } catch { return false; }
 }
 async function waitRetry(settings) { await new Promise(resolve => setTimeout(resolve, Math.round((settings.min_seconds + Math.random() * (settings.max_seconds - settings.min_seconds)) * 1000))); }
@@ -42,6 +42,7 @@ async function bufferStream(body) {
     return Buffer.concat(chunks);
 }
 function streamCompleted(buffer) { const text = buffer.toString('utf8'); return /response\.completed/.test(text) && /"status"\s*:\s*"completed"/.test(text); }
+function upstreamErrorDetail(error) { return error?.cause?.message || error?.message || String(error) || 'The upstream connection failed.'; }
 
 export function upstreamFetch() {
     let proxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY;
@@ -570,8 +571,8 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             metrics.completed_requests++;
             completionCounted = true;
         } catch (error) {
-            requestErrorCode = error.code || 'proxy_error';
-            requestErrorMessage = error.message;
+            requestErrorCode = error.code || 'upstream_unavailable';
+            requestErrorMessage = upstreamErrorDetail(error);
             requestBody ??= error.requestBody;
             if (!controller?.signal.aborted) void report(error, name);
             if (!response.headersSent && !response.destroyed) {
@@ -583,7 +584,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 try { await requestLog.record({ startedAt: requestStartedAt.toISOString(), finishedAt: new Date().toISOString(), method: request.method,
                     path: request.url, account: name, status: response.statusCode || null, success: (response.statusCode || 500) < 400,
                     durationMs: Date.now() - requestStartedAt.getTime(), requestBody,
-                    responseBody: Buffer.concat(responseChunks).toString('utf8'), errorCode: requestErrorCode || (response.statusCode >= 400 ? 'http_error' : null),
+                    responseBody: Buffer.concat(responseChunks).toString('utf8') || JSON.stringify({ error: { code: requestErrorCode, message: requestErrorMessage } }), errorCode: requestErrorCode || (response.statusCode >= 400 ? 'http_error' : null),
                     errorMessage: requestErrorMessage, model: requestModel, attemptCount: attemptCount || 1, errorEvents: attemptErrors }); }
                 catch { /* Logging must never break a completed request. */ }
             }

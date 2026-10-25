@@ -63,7 +63,7 @@ export async function createRequestLog(directory) {
         list(limit = 15, offset = 0, filter = 'all') {
             const safeLimit = Math.min(100, Math.max(1, Number(limit) || 15));
             const safeOffset = Math.max(0, Number(offset) || 0);
-            const where = filter === 'errors' ? 'WHERE success = 0' : filter === 'capacity' ? "WHERE error_code LIKE '%capacity%' OR error_events LIKE '%capacity%'" : filter === 'network' ? "WHERE error_code LIKE '%network%' OR error_events LIKE '%network%' OR error_events LIKE '%disconnect%'" : '';
+            const where = filter === 'errors' ? 'WHERE success = 0' : filter === 'capacity' ? "WHERE error_code LIKE '%capacity%' OR error_events LIKE '%capacity%'" : filter === 'network' ? "WHERE error_code LIKE '%network%' OR error_code = 'upstream_unavailable' OR error_events LIKE '%network%' OR error_events LIKE '%disconnect%' OR error_events LIKE '%transport%'" : '';
             const result = db.exec(`SELECT id, started_at AS startedAt, finished_at AS finishedAt, method, path,
                 account, status, success, duration_ms AS durationMs, error_code AS errorCode
                 , model, error_message AS errorMessage, attempt_count AS attemptCount, error_events AS errorEvents
@@ -73,7 +73,7 @@ export async function createRequestLog(directory) {
             return table.values.map(values => Object.fromEntries(table.columns.map((key, index) => [key, values[index]])));
         },
         count(filter = 'all') {
-            const where = filter === 'errors' ? 'WHERE success = 0' : filter === 'capacity' ? "WHERE error_code LIKE '%capacity%' OR error_events LIKE '%capacity%'" : filter === 'network' ? "WHERE error_code LIKE '%network%' OR error_events LIKE '%network%' OR error_events LIKE '%disconnect%'" : '';
+            const where = filter === 'errors' ? 'WHERE success = 0' : filter === 'capacity' ? "WHERE error_code LIKE '%capacity%' OR error_events LIKE '%capacity%'" : filter === 'network' ? "WHERE error_code LIKE '%network%' OR error_code = 'upstream_unavailable' OR error_events LIKE '%network%' OR error_events LIKE '%disconnect%' OR error_events LIKE '%transport%'" : '';
             const result = db.exec(`SELECT COUNT(*) AS count FROM request_logs ${where}`);
             return Number(result[0]?.values[0]?.[0] || 0);
         },
