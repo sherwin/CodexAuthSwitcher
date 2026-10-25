@@ -105,6 +105,19 @@ function sendJSON(response, status, value, extraHeaders = {}) {
     response.end(body);
 }
 
+function cursorProtoHeaders(request, { stream = false } = {}) {
+    // Cursor's Connect transport validates the response against the RPC kind,
+    // rather than echoing the request content type. Unary methods such as
+    // AvailableModels and DashboardService require application/proto;
+    // StreamCpp uses the length-prefixed application/connect+proto format.
+    const requested = String(request.headers['content-type'] || '').toLowerCase();
+    const contentType = stream ? (requested.includes('grpc-web') ? 'application/grpc-web+proto' :
+        requested.includes('grpc') ? 'application/grpc+proto' : 'application/connect+proto') : 'application/proto';
+    return { 'Content-Type': contentType, 'Cache-Control': 'no-store',
+        ...(contentType.includes('grpc') ? { 'grpc-encoding': 'identity' } :
+            contentType.includes('connect') ? { 'Connect-Protocol-Version': '1' } : {}) };
+}
+
 function authenticated(request, key) {
     const expected = Buffer.from(`Bearer ${key}`);
     const actual = Buffer.from(request.headers.authorization || '');
@@ -218,14 +231,16 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
         try {
             const requestedPath = new URL(request.url, 'http://127.0.0.1').pathname;
             const cursorConnect = request.method === 'POST' &&
-                /^\/aiserver\.v1\.AiService\/(StreamCpp|CppConfig)$/.test(requestedPath);
+                /^\/aiserver\.v1\.AiService\/StreamCpp$/.test(requestedPath);
+            const cursorCppConfig = request.method === 'POST' &&
+                requestedPath === '/aiserver.v1.AiService/CppConfig';
             const cursorDashboard = request.method === 'POST' &&
                 /^\/aiserver\.v1\.(DashboardService|NetworkService)\/.+/.test(requestedPath);
             const cursorAvailableModels = request.method === 'POST' &&
                 /^\/aiserver\.v1\.(AiService|CppService)\/AvailableModels$/.test(requestedPath);
             const cursorAuth = requestedPath.startsWith('/auth/');
             if (!authenticated(request, initial.key) && !(isLoopback(request.socket.remoteAddress) &&
-                (cursorConnect || cursorDashboard || cursorAvailableModels || cursorAuth))) {
+                (cursorConnect || cursorCppConfig || cursorDashboard || cursorAvailableModels || cursorAuth))) {
                 sendJSON(response, 401, { error: { code: 'local_key_required', message: 'Local gateway authentication required.' } });
                 return;
             }
@@ -246,9 +261,8 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             // Cursor treats omitted optional fields as the local free/ultra
             // defaults and proceeds to the configured completion endpoint.
             if (cursorDashboard) {
-                const payload = connectEnvelope(Buffer.alloc(0));
-                response.writeHead(200, { 'Content-Type': 'application/connect+proto',
-                    'Connect-Protocol-Version': '1', 'Cache-Control': 'no-store' });
+                const payload = Buffer.alloc(0);
+                response.writeHead(200, cursorProtoHeaders(request));
                 response.end(payload);
                 return;
             }
@@ -268,10 +282,20 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                         }
                     } catch { /* Keep the local fallback when a provider has no model endpoint. */ }
                 }
-                const payload = connectEnvelope(encodeAvailableModelsResponse(modelNames));
-                response.writeHead(200, { 'Content-Type': 'application/connect+proto',
-                    'Connect-Protocol-Version': '1', 'Cache-Control': 'no-store' });
+                const payload = encodeAvailableModelsResponse(modelNames);
+                response.writeHead(200, cursorProtoHeaders(request));
                 response.end(payload);
+                return;
+            }
+            if (cursorCppConfig) {
+                // CppConfig is a unary RPC. Unlike StreamCpp it carries a raw
+                // protobuf message and must receive application/proto without
+                // a Connect envelope.
+                await rawBody(request);
+                const config = Buffer.concat([Buffer.from([0x08, 0x01]), Buffer.from([0x10, 0x01]),
+                    Buffer.from([0x28, 0x01]), Buffer.from([0x30, 0x01])]);
+                response.writeHead(200, cursorProtoHeaders(request));
+                response.end(config);
                 return;
             }
             if (cursorAuth) {
@@ -294,16 +318,6 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 if (envelopes.length !== 1 || envelopes[0].flags !== 0)
                     throw new ProxyError('Cursor Connect request envelope is unsupported.', 'invalid_cursor_request', 400);
                 const input = envelopes[0].message;
-                if (url.pathname.endsWith('/CppConfig')) {
-                    // CppConfigResponse: above_radius=1, below_radius=1, is_on=true,
-                    // is_ghost_text=true. The adapter keeps Cursor's native UI path alive.
-                    const config = Buffer.concat([Buffer.from([0x08, 0x01]), Buffer.from([0x10, 0x01]), Buffer.from([0x28, 0x01]), Buffer.from([0x30, 0x01])]);
-                    const payload = connectEnvelope(config);
-                    response.writeHead(200, { 'Content-Type': 'application/connect+proto',
-                        'Connect-Protocol-Version': '1', 'Cache-Control': 'no-store' });
-                    response.end(payload);
-                    return;
-                }
                 const cursor = decodeStreamCppRequest(input);
                 const prompt = cursorPrompt(cursor);
                 const localPort = server.address()?.port;
@@ -327,8 +341,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                     connectEnvelope(encodeStreamCppResponse({ text: completion, startLine: line, endLine: line })),
                     connectEnvelope(encodeStreamCppResponse({ doneStream: true, doneEdit: true, startLine: line, endLine: line }))
                 ]);
-                response.writeHead(200, { 'Content-Type': 'application/connect+proto',
-                    'Connect-Protocol-Version': '1', 'Cache-Control': 'no-store' });
+                response.writeHead(200, cursorProtoHeaders(request, { stream: true }));
                 response.end(payload);
                 return;
             }
