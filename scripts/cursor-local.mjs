@@ -17,10 +17,14 @@ export function candidateRoots(platform = process.platform, env = process.env) {
 export function patchCursorSource(source, url = localUrl) {
     const replacements = [
         ['ykt="https://api4.cursor.sh"', `ykt="${url}"`],
-        ['SWe="https://api4.cursor.sh"', `SWe="${url}"`]
+        ['SWe="https://api4.cursor.sh"', `SWe="${url}"`],
+        // Cursor renamed the minified variable names in newer releases. The
+        // native completion and completion-config backends still use the
+        // api4 host, so replace those URL literals without relying on names.
+        ['https://api4.cursor.sh', url]
     ];
     let result = source;
-    for (const [from, to] of replacements) result = result.replace(from, to);
+    for (const [from, to] of replacements) result = result.replaceAll(from, to);
     if (result === source) throw new Error('未找到当前 Cursor 版本的补全后端地址，可能需要更新适配规则。');
     return result;
 }

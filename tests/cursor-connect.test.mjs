@@ -35,3 +35,9 @@ test('Cursor patch locations and replacements work on Windows and macOS', () => 
     const patched = patchCursorSource(source, 'http://127.0.0.1:18888');
     assert.equal(patched, 'ykt="http://127.0.0.1:18888";SWe="http://127.0.0.1:18888"');
 });
+
+test('Cursor newer minified backend constants are patched without login changes', () => {
+    const source = 'auth="https://api.cursor.com";prr="https://api4.cursor.sh";j6n="https://api4.cursor.sh"';
+    const patched = patchCursorSource(source, 'http://127.0.0.1:18888');
+    assert.equal(patched, 'auth="https://api.cursor.com";prr="http://127.0.0.1:18888";j6n="http://127.0.0.1:18888"');
+});
