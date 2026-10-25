@@ -35,7 +35,7 @@ test('round trips Connect envelopes and emits a StreamCpp response', () => {
 });
 
 test('Cursor patch locations and replacements work on Windows and macOS', () => {
-    assert.match(candidateRoots('win32', { LOCALAPPDATA: 'C:\\Users\\demo' })[0], /Programs[\\/]cursor/);
+    assert.match(candidateRoots('win32', { LOCALAPPDATA: 'C:\\Users\\demo' })[0], /cursor[\\/]resources[\\/]app$/i);
     assert.match(candidateRoots('darwin', { HOME: '/Users/demo' })[0], /Cursor\.app/);
     const source = 'ykt="https://api4.cursor.sh";SWe="https://api4.cursor.sh"';
     const patched = patchCursorSource(source, 'http://127.0.0.1:18888');
