@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createGateway } from '../proxy/server.mjs';
 import { decodeConnectEnvelopes, decodeStreamCppRequest, encodeAvailableModelsResponse, encodeStreamCppResponse,
-    connectEnvelope } from '../proxy/cursor-connect.mjs';
+    connectEnvelope, extractCursorChatPrompt } from '../proxy/cursor-connect.mjs';
 import { candidateRoots, cursorStateDatabase, injectCursorAuthState, localCursorAuthValues,
     patchCursorSource, restoreCursorAuthState } from '../scripts/cursor-local.mjs';
 
@@ -39,6 +39,11 @@ test('encodes a Cursor model picker response with configured model names', () =>
     const payload = encodeAvailableModelsResponse(['local-model', 'gpt-4o-mini']);
     assert.match(payload.toString('utf8'), /local-model/);
     assert.match(payload.toString('utf8'), /gpt-4o-mini/);
+});
+
+test('strips Cursor protobuf metadata from Chat prompts', () => {
+    const prompt = Buffer.from(stringField(1, 'Reply with exactly: LOCAL_CURSOR_REPLY\x10\x01j$2d212ad9-36d0-4d2f-be92-6bc6e7108120'));
+    assert.equal(extractCursorChatPrompt(prompt), 'Reply with exactly: LOCAL_CURSOR_REPLY');
 });
 
 test('Cursor patch locations and replacements work on Windows and macOS', () => {

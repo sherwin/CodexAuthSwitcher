@@ -164,8 +164,13 @@ export function extractCursorChatPrompt(buffer) {
         try { items = fields(message); } catch { return; }
         for (const item of items) {
             if (item.wireType !== 2 || !Buffer.isBuffer(item.value)) continue;
-            const text = item.value.toString('utf8');
-            if (text && !text.includes('\u0000') && /[\p{L}\p{N}]/u.test(text)) values.push(text);
+            const raw = item.value.toString('utf8');
+            // Cursor appends protobuf field bytes and a request UUID to the
+            // human prompt.  Never forward that transport metadata upstream.
+            const text = raw.replace(/j\$[0-9a-f-]{20,}/gi, '')
+                .replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ')
+                .replace(/^[^\p{L}\p{N}]+/u, '').trim();
+            if (text && /[\p{L}\p{N}]/u.test(text)) values.push(text);
             visit(item.value, depth + 1);
         }
     };
