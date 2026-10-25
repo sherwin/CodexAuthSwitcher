@@ -1,4 +1,8 @@
 (() => {
+    function redirectToLogin() {
+        if (sessionStorage.getItem('codex-auth-login-redirect')) return false;
+        sessionStorage.setItem('codex-auth-login-redirect', '1'); location.replace('/'); return true;
+    }
     const panel = document.createElement('section'); panel.className = 'card web-runtime'; panel.hidden = true;
     panel.innerHTML = '<h3>Surface Codex／飞书连接</h3><p class="muted">应用 Key 模式或切换授权文件后，可在这里重启飞书连接及其 Codex 子进程。代理模式只需首次接入时重启；之后切换代理出口，新请求立即生效。</p><p class="muted web-runtime-status" role="status">读取服务状态…</p><div class="actions"><button class="web-runtime-restart">重启 Codex／飞书连接</button><button class="primary web-runtime-proxy">应用代理模式并重启</button></div><p class="muted web-runtime-result" role="status"></p>';
     document.querySelector('.codex-panel').append(panel);
@@ -10,7 +14,7 @@
             headers: { 'Content-Type': 'application/json', 'X-Switcher-Web': '1' },
             body: body === undefined ? undefined : JSON.stringify(body) });
         const data = await response.json();
-        if (response.status === 401) { location.replace('/'); throw Error('登录已过期'); }
+        if (response.status === 401) { redirectToLogin(); throw Error('登录已过期'); }
         if (!response.ok) throw Error(data.error || '操作失败');
         return data;
     }

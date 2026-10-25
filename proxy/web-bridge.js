@@ -1,5 +1,12 @@
 /* Adapt the unchanged desktop renderer to the authenticated Surface backend. */
 (() => {
+    function redirectToLogin(message) {
+        if (sessionStorage.getItem('codex-auth-login-redirect')) return false;
+        sessionStorage.setItem('codex-auth-login-redirect', '1');
+        if (message) sessionStorage.setItem('codex-auth-login-message', message);
+        location.replace('/');
+        return true;
+    }
     const routes = { status: ['status'], accounts: ['accounts'], statistics: ['statistics'], requestLogs: ['requestLogs', true], requestLog: ['requestLogs', true], settings: ['settings', true], priority: ['priority', true], custom: ['custom', true],
         usage: ['usage', true], select: ['select', true], deepseek: ['deepseek', true], configure: ['configure', true],
         authFile: ['auth-file', true], unconfigure: ['unconfigure', true] };
@@ -8,7 +15,7 @@
             headers: { 'Content-Type': 'application/json', 'X-Switcher-Web': '1' },
             body: data === undefined ? undefined : JSON.stringify(data) });
         const result = await response.json();
-        if (response.status === 401) { location.replace('/'); throw Error('登录已过期，请重新登录。'); }
+        if (response.status === 401) { redirectToLogin('登录已过期，请重新登录。'); throw Error('登录已过期，请重新登录。'); }
         if (!response.ok) throw Error(result.error || '操作失败');
         return result;
     }

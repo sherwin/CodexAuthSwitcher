@@ -19,6 +19,9 @@
     </form>
 </main>
 <script>
+sessionStorage.removeItem('codex-auth-login-redirect');
+const loginMessage=sessionStorage.getItem('codex-auth-login-message');
+if(loginMessage){document.getElementById('message').textContent=loginMessage;sessionStorage.removeItem('codex-auth-login-message');}
 document.getElementById('login').onsubmit=async event=>{
     event.preventDefault();const form=event.target,button=form.querySelector('button'),message=document.getElementById('message');
     button.disabled=true;message.textContent='正在登录…';
