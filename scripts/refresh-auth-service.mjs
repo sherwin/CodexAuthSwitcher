@@ -5,6 +5,7 @@ import { Credentials, claims, isDeepSeek } from '../proxy/credentials.mjs';
 import { upstreamFetch } from '../proxy/server.mjs';
 
 export const refreshIntervalMs = 6 * 60 * 60 * 1000;
+export const directoryCheckIntervalMs = 60 * 1000;
 export const tokenRefreshWindowSeconds = 86400;
 
 export async function accountFiles(authDirectory, fsApi = fs) {
@@ -36,7 +37,7 @@ export async function refreshAll({ directory = defaultDirectory, fsApi = fs,
         }
     }
     log(JSON.stringify({ event: 'refresh_all', results: results.map(({ name, status, code, reason }) => ({ name, status, code, reason })) }));
-    return results;
+    return { authDirectory, results };
 }
 
 export async function runService(options = {}) {
@@ -44,11 +45,26 @@ export async function runService(options = {}) {
     let stopped = false;
     const stop = () => { stopped = true; };
     for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, stop);
+    let activeDirectory;
+    let nextRefreshAt = 0;
     while (!stopped) {
-        try { await refreshAll(options); }
+        try {
+            const state = await readJSON(path.join(options.directory || defaultDirectory, 'proxy.json'));
+            if (state.auth_directory !== activeDirectory) {
+                activeDirectory = state.auth_directory;
+                nextRefreshAt = 0;
+                (options.log || console.log)(JSON.stringify({ event: 'refresh_directory_changed', authDirectory: activeDirectory }));
+            }
+            if (Date.now() >= nextRefreshAt) {
+                const refreshed = await refreshAll(options);
+                activeDirectory = refreshed.authDirectory;
+                nextRefreshAt = Date.now() + interval;
+            }
+        }
         catch (error) { (options.log || console.error)(JSON.stringify({ event: 'refresh_all_failed', error: error.message })); }
         if (stopped) break;
-        await new Promise(resolve => setTimeout(resolve, interval));
+        const wait = Math.max(1000, Math.min(directoryCheckIntervalMs, nextRefreshAt - Date.now()));
+        await new Promise(resolve => setTimeout(resolve, wait));
     }
 }
 
