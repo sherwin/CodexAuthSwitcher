@@ -12,6 +12,7 @@
     "proxy": "node proxy/server.mjs serve",
     "test": "node --test tests/*.test.mjs",
     "test:desktop": "node scripts/run-desktop-smoke.cjs",
+    "refresh-auth": "node scripts/refresh-auth-service.mjs",
     "setup": "node proxy/server.mjs configure",
     "build:icons": "node scripts/generate-icons.cjs",
     "prepack": "npm run build:icons",
