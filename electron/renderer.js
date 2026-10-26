@@ -1,4 +1,5 @@
 const api = window.authSwitcher;
+const tr = text => typeof window !== 'undefined' && window.i18n?.t ? window.i18n.t(text) : text;
 const accounts = document.querySelector('#accounts');
 const usage = new Map();
 const accountRefreshes = new Map();
@@ -205,8 +206,8 @@ async function refreshStatistics() {
     try {
         statisticsData = await call('statistics');
         renderStatistics();
-        document.querySelector('#statistics-status').textContent = '统计已更新，每 10 秒自动刷新。';
-    } catch (error) { document.querySelector('#statistics-status').textContent = `统计读取失败：${error.message}。显示数据可能不是最新。`; }
+        document.querySelector('#statistics-status').textContent = tr('统计已更新，每 10 秒自动刷新。');
+    } catch (error) { document.querySelector('#statistics-status').textContent = tr(`统计读取失败：${error.message}。显示数据可能不是最新。`); }
     finally { statisticsLoading = false; button.disabled = false; }
 }
 
@@ -424,18 +425,18 @@ async function updateHealth() {
     try {
         health = await call('status');
         document.querySelector('#dot').classList.add('running');
-        document.querySelector('#gateway-status').textContent = '本地代理运行中';
+        document.querySelector('#gateway-status').textContent = tr('本地代理运行中');
         const displayHost = health.lan_enabled ? health.lan_addresses?.[0] : '127.0.0.1';
-        document.querySelector('#gateway-detail').textContent = `${displayHost ? `${displayHost}:${health.port}` : '未发现局域网 IP'} · 出口：${health.selected_file || '未选择'}`;
+        document.querySelector('#gateway-detail').textContent = tr(`${displayHost ? `${displayHost}:${health.port}` : '未发现局域网 IP'} · 出口：${health.selected_file || '未选择'}`);
         const connection = keyConnectionPresentation(health.codex_connection);
         document.querySelector('#configure').disabled = busy;
-        document.querySelector('#configure').textContent = '应用 Key 模式';
+        document.querySelector('#configure').textContent = tr('应用 Key 模式');
         document.querySelector('#setup-note').className = 'notice' + (health.codex_mode === 'key' ? ' ' + connection.tone : '');
         document.querySelector('#setup-note').textContent = health.codex_mode === 'key'
-            ? connection.text
-            : health.codex_mode === 'custom' ? `Codex 当前配置：局域网 Base URL · ${health.custom_base_url || '未记录地址'}。更新地址或 Key 后需重启 Codex。`
-            : health.codex_mode === 'auth_file' ? `Codex 当前配置：授权文件直连 · ${health.codex_auth_file || '未记录账号'}。更新授权后需重启 Codex；代理仍独立运行。`
-                : '尚未由工具配置 Codex。可选择 Key 接入代理，或授权文件直连；两者都不会关闭本地代理。配置后需重启 Codex。';
+            ? tr(connection.text)
+            : health.codex_mode === 'custom' ? tr(`Codex 当前配置：局域网 Base URL · ${health.custom_base_url || '未记录地址'}。更新地址或 Key 后需重启 Codex。`)
+            : health.codex_mode === 'auth_file' ? tr(`Codex 当前配置：授权文件直连 · ${health.codex_auth_file || '未记录账号'}。更新授权后需重启 Codex；代理仍独立运行。`)
+                : tr('尚未由工具配置 Codex。可选择 Key 接入代理，或授权文件直连；两者都不会关闭本地代理。配置后需重启 Codex。');
         if (observedCodexMode !== health.codex_mode) {
             observedCodexMode = health.codex_mode;
             codexMode = health.codex_mode;
@@ -447,9 +448,9 @@ async function updateHealth() {
         }
         const addresses = health.lan_enabled ? health.lan_addresses : [];
         document.querySelector('#network-addresses').textContent = health.lan_enabled
-            ? addresses.length ? '局域网 Base URL：' + addresses.map(ip => `http://${ip}:${health.port}/v1`).join(' · ')
-                : '局域网已开启，但未发现私有 IPv4 地址，请检查网络连接。'
-            : `仅本机访问：http://127.0.0.1:${health.port}/v1`;
+            ? addresses.length ? tr('局域网 Base URL：') + addresses.map(ip => `http://${ip}:${health.port}/v1`).join(' · ')
+                : tr('局域网已开启，但未发现私有 IPv4 地址，请检查网络连接。')
+            : tr(`仅本机访问：http://127.0.0.1:${health.port}/v1`);
         const signature = JSON.stringify([health.port, health.lan_enabled, addresses, health.selected_provider]);
         if (addressSignature !== signature) {
             const target = document.querySelector('#curl-target');
@@ -470,13 +471,13 @@ async function updateHealth() {
             await updateCurl();
             curlMode = signature;
         }
-        document.querySelector('#gateway-status').title = health.in_flight ? `${health.in_flight} 个请求进行中` : '代理空闲';
+        document.querySelector('#gateway-status').title = tr(health.in_flight ? `${health.in_flight} 个请求进行中` : '代理空闲');
         const errorSignature = health.last_error ? JSON.stringify([health.last_error.code, health.last_error.account, health.last_error.at]) : null;
         if (errorSignature && errorSignature !== lastHealthError) message(`代理错误：${health.last_error.code} · ${health.last_error.account || ''}`, true);
         lastHealthError = errorSignature;
     } catch (error) {
         document.querySelector('#dot').classList.remove('running');
-        document.querySelector('#gateway-status').textContent = '本地代理不可用';
+        document.querySelector('#gateway-status').textContent = tr('本地代理不可用');
         const errorSignature = `connection:${error.message}`;
         if (lastHealthError !== errorSignature) message(error.message, true);
         lastHealthError = errorSignature;
