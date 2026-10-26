@@ -62,21 +62,78 @@
         '容量、502 Bad Gateway 和流式网络断开会在内部随机等待后重试。': 'Capacity, 502 Bad Gateway, and streaming disconnects retry after a random internal delay.',
         '已取消。': 'Cancelled.', '复制失败，请确认本地代理运行、所选地址可用。': 'Copy failed. Confirm that the local proxy is running and the selected address is available.',
         '正在验证': 'Verifying', '代理出口已切换到': 'Proxy account switched to', '新请求立即生效': 'new requests use it immediately',
+        '保存中…': 'Saving…', '已保存': 'Saved', '保存失败：': 'Save failed: ', '读取记录…': 'Loading record…', '读取中…': 'Loading…',
+        '编辑自定义 API 账号': 'Edit custom API account', '留空保留已有 Key': 'Leave blank to keep the existing key', '输入 API Key': 'Enter API key',
+        '保存 API 账号': 'Save API account', '尚未由工具配置 Codex。可选择 Key 接入代理，或授权文件直连；两者都不会关闭本地代理。配置后需重启 Codex。': 'Codex has not been configured by this tool. Choose key mode or auth-file direct mode; neither disables the local proxy. Restart Codex after configuring.',
+        'Codex 连接配置': 'Codex connection configuration', 'Key · 连接本地代理': 'Key · Connect to local proxy', 'Codex 授权文件': 'Codex auth files',
+        'Key 连接已验证': 'Key connection verified', '重新应用 Key 配置': 'Reapply key configuration', '修复 Key 配置': 'Repair key configuration',
+        '代理空闲': 'Proxy idle', '授权或额度查询失败，请刷新重试': 'Auth or usage query failed. Refresh and try again.', '查询额度中…': 'Checking usage…',
+        '最近过期时间：查询中…': 'Nearest expiry: checking…', '未提供到期时间': 'No expiry provided', '上游未返回此账号的会员日期': 'The upstream did not return a membership date for this account',
+        '会员有效期 · 随额度刷新': 'Membership period · refreshed with usage', '订阅未激活': 'Subscription inactive', '账期已到，会员仍有效（以上游为准）': 'Billing period ended; membership is still active (according to the upstream)',
+        '宽限至 ': 'Grace period until ', '续费 ': 'Renews ', '没有可用于 Codex 直连的 ChatGPT 授权文件。': 'No ChatGPT auth file is available for direct Codex access.',
+        'Key 已接入：本次代理启动后已收到本机 Codex 客户端请求。用量按代理出口账号统计；之后切换出口无需重启 Codex。': 'Key mode is connected: a request from the local Codex client was received after the proxy started. Usage is counted against the proxy account; switching proxy accounts no longer requires a Codex restart.',
+        '代理配置已覆盖新旧会话的连接标识 · 等待 Codex 请求验证。请完全退出并重开 Codex，然后在原会话发送消息验证；无需新建会话。之后切换代理出口无需重启。': 'The proxy configuration covers new and existing session identifiers; waiting for a Codex request to verify it. Fully quit and reopen Codex, then send a message in the existing conversation; no new conversation is needed. Switching proxy accounts afterward does not require a restart.',
+        'Codex 当前配置：局域网 Base URL · ': 'Current Codex configuration: LAN base URL · ', 'Codex 当前配置：授权文件直连 · ': 'Current Codex configuration: auth-file direct · ',
+        'Codex 已切换到': 'Codex switched to', '请重启 Codex；代理出口未改变。': 'Restart Codex; the proxy account is unchanged.',
+        '不支持的操作': 'Unsupported operation', '操作失败': 'Operation failed', '复制命令': 'Copy command', '读取目录…': 'Loading directory…',
+        '选择文件夹进入，或使用当前目录。': 'Choose a folder to open it, or use the current directory.', '此目录没有可见子文件夹。': 'This directory has no visible subfolders.',
+        '文件超过 1 MiB：': 'File exceeds 1 MiB: ', '已导入': 'Imported', '个账号。': ' account(s).', '个账号；': ' account(s);', '浏览器未允许复制，请在 HTTPS 环境重试。': 'The browser did not allow copying. Retry over HTTPS.',
+        '局域网访问未开启。': 'LAN access is disabled.', '此局域网地址当前不可用。': 'This LAN address is currently unavailable.', '端口必须为 1024–65535 的整数。': 'The port must be an integer from 1024 to 65535.',
+        '代理配置标记不完整。': 'Proxy configuration markers are incomplete.', 'Codex 的代理配置已被修改，请先检查配置后再改端口。': 'Codex proxy configuration was modified. Check it before changing the port.',
+        '请选择有效的 ChatGPT 授权文件。': 'Choose a valid ChatGPT auth file.', '请输入局域网服务 Key。': 'Enter the LAN service key.',
+        'Base URL 格式无效。': 'Invalid Base URL format.', 'Base URL 只支持 http/https，且不能包含账号密码。': 'Base URL must use http or https and cannot include credentials.',
+        '上游事件格式无效。': 'Invalid upstream event format.', '上游最终响应格式无效。': 'Invalid final upstream response format.', '上游未返回响应内容。': 'The upstream returned no response content.',
+        '上游生成失败。': 'Upstream generation failed.', '非流式响应超过大小限制，请使用流式请求。': 'The non-streaming response exceeded the size limit. Use a streaming request.',
+        '系统 HTTP 代理地址无效。': 'Invalid system HTTP proxy address.', '请将系统代理设置为 HTTP/HTTPS 代理。': 'Set the system proxy to an HTTP/HTTPS proxy.',
+        '个子进程正在运行': 'child process(es) running', '飞书连接运行中': 'Feishu bridge running', '飞书连接未运行': 'Feishu bridge is not running',
+        '确认重启': 'Confirm restart',
+        '正在应用代理配置并重启…': 'Applying proxy configuration and restarting…', '正在重启…': 'Restarting…',
+        '代理模式已接入，飞书连接已重启。之后切换代理出口即可，无需重启。': 'Proxy mode connected and the Feishu bridge restarted. Switching proxy accounts afterward does not require a restart.',
+        '飞书连接已重启，后续 Codex 请求将读取当前配置。': 'The Feishu bridge restarted. Future Codex requests will use the current configuration.',
+        '飞书连接运行中': 'Feishu bridge running', '飞书连接未运行': 'Feishu bridge is not running',
+        '选择远程授权目录': 'Choose remote auth directory', '浏览此 Linux 主机上的文件夹。选择目录会清除代理账号选择，但保留现有 Codex 授权不变。': 'Browse folders on this Linux host. Selecting a directory clears the proxy account selection and keeps existing Codex auth unchanged.',
+        '查看日周月 Token 用量': 'View daily, weekly and monthly token usage', '今日每小时 Token 柱状图': 'Hourly token chart for today', '配置管理': 'Configuration', '筛选账号': 'Filter account', '筛选错误类型': 'Filter error type', '统计周期': 'Statistics period', '关闭提示': 'Dismiss notification',
+        '成功': 'Success', '失败': 'Failed', '模型未知': 'Unknown model', '未知': 'Unknown', '（历史）': '(history)', '点': 'hour', '精确用量': 'Exact usage', '次请求未收到完整用量（中断、失败或上游未提供），总 Token 可能低于实际消耗。': ' requests did not return complete usage (interrupted, failed, or not provided upstream); total tokens may be lower than actual usage.', '无未知用量请求。未经过本地代理的调用不在统计范围内。': 'No requests with unknown usage. Calls that did not pass through the local proxy are excluded.',
+        '已应用并更新 Codex Base URL，请重启 Codex。': 'Applied and updated the Codex Base URL. Restart Codex.', '网络设置已应用。': 'Network settings applied.', '已复制，可粘贴到对应电脑终端。': 'Copied. Paste it into the target computer terminal.', '已取消复制。': 'Copy cancelled.', '地址已变化，请刷新后重试。': 'The address changed. Refresh and try again.',
     };
     const reverse = Object.fromEntries(Object.entries(translations).map(([zh, en]) => [en, zh]));
+    const englishToChinese = {
+        'Codex / Feishu connection': 'Codex / 飞书连接', 'Restart the Feishu bridge and its Codex child processes after applying key mode or switching an auth file. Proxy account changes take effect on new requests without a restart.': '应用 Key 模式或切换授权文件后，重启飞书连接及其 Codex 子进程。代理账号切换会对新请求生效，无需重启。',
+        'Restart Codex / Feishu': '重启 Codex / 飞书', 'Apply proxy mode and restart': '应用代理模式并重启', 'Loading service status…': '正在读取服务状态…',
+        'Choose remote auth directory': '选择远程授权目录', 'Browse folders on this Linux host. Selecting a directory clears the proxy account selection and keeps existing Codex auth unchanged.': '浏览此 Linux 主机上的文件夹。选择目录会清除代理账号选择，但保留现有 Codex 授权不变。',
+        'Remote directory path': '远程目录路径', 'Open': '打开', 'Parent': '上级目录', 'Cancel': '取消', 'Use this directory': '使用此目录',
+        'child process(es) running': '个子进程正在运行', 'Feishu bridge running': '飞书连接运行中', 'Feishu bridge is not running': '飞书连接未运行',
+        'Confirm restart': '确认重启', 'Connect Codex to the local proxy and restart Feishu. Running Feishu tasks will be interrupted; existing chat history is kept.': '将 Codex 连接到本地代理并重启飞书。正在运行的飞书任务会被中断，但现有聊天记录会保留。',
+        'Applying proxy configuration and restarting…': '正在应用代理配置并重启…', 'Restarting…': '正在重启…',
+        'Proxy mode connected and the Feishu bridge restarted. Switching proxy accounts afterward does not require a restart.': '代理模式已接入，飞书连接已重启。之后切换代理出口无需重启。',
+        'The Feishu bridge restarted. Future Codex requests will use the current configuration.': '飞书连接已重启，后续 Codex 请求将读取当前配置。'
+    };
     let language = localStorage.getItem('codex-auth-switcher-language') || 'en';
     function translateText(value) {
-        if (typeof value !== 'string' || language === 'zh') return value;
+        if (typeof value !== 'string') return value;
+        if (language === 'zh') return englishToChinese[value] || reverse[value] || value;
         const leading = value.match(/^\s*/)?.[0] || '', trailing = value.match(/\s*$/)?.[0] || '', core = value.trim();
         if (translations[core]) return leading + translations[core] + trailing;
-        return leading + core.replace(/刷新 (\S+)/g, 'Refresh $1').replace(/(\d+)% 剩余/g, '$1% remaining')
+        const dynamic = core
+            .replace(/^第 (\d+) \/ (\d+) 页 · 共 (\d+) 条$/, 'Page $1 / $2 · $3 records')
+            .replace(/^记录 #(.+?) · /, 'Record #$1 · ')
+            .replace(/^正在验证 (.+)…$/, 'Verifying $1…')
+            .replace(/^飞书连接运行中 · PID (\d+)$/, 'Feishu bridge running · PID $1')
+            .replace(/^正在写入 (.+) 的 Codex 授权文件…$/, 'Writing the Codex auth file for $1…')
+            .replace(/^代理出口已切换到 (.+)，新请求立即生效；Codex 直连授权未改变。$/, 'Proxy account switched to $1; new requests use it immediately. Direct Codex auth is unchanged.')
+            .replace(/^刷新 (.+) 的额度和状态$/, 'Refresh usage and status for $1')
+            .replace(/^最近过期时间 (.+)$/, 'Nearest expiry $1')
+            .replace(/^已更新 (.+) 保存$/, 'Updated $1 · saved')
+            .replace(/^点击「刷新额度」重试（(.+)）$/, 'Click “Refresh usage” to retry ($1)')
+            .replace(/^刷新 (\S+)/g, 'Refresh $1').replace(/(\d+)% 剩余/g, '$1% remaining')
             .replace(/已更新 /g, 'Updated ').replace(/保存/g, 'saved').replace(/账号/g, 'account')
             .replace(/出口：/g, 'Account: ').replace(/局域网 Base URL：/g, 'LAN base URL: ')
             .replace(/仅本机访问：/g, 'Local access only: ').replace(/局域网访问：/g, 'LAN access: ')
             .replace(/代理错误：/g, 'Proxy error: ').replace(/正在验证 /g, 'Verifying ')
             .replace(/正在写入 /g, 'Writing ').replace(/请重启 Codex/g, 'Please restart Codex')
             .replace(/查询额度中…/g, 'Checking usage…').replace(/暂无请求记录。/g, 'No request logs.')
-            .replace(/请求记录读取失败：/g, 'Failed to read request logs: ') + trailing;
+            .replace(/请求记录读取失败：/g, 'Failed to read request logs: ');
+        return leading + dynamic + trailing;
     }
     function apply() {
         document.documentElement.lang = language === 'en' ? 'en' : 'zh-CN';
@@ -84,6 +141,11 @@
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
         const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
         for (const node of nodes) { if (node.parentElement?.closest('script,style')) continue; const original = node.nodeValue; const translated = translateText(language === 'en' ? original : (reverse[original] || original)); if (translated !== original) node.nodeValue = translated; }
+        for (const node of document.querySelectorAll('[aria-label],[placeholder],[title]')) {
+            for (const attribute of ['aria-label', 'placeholder', 'title']) {
+                if (node.hasAttribute(attribute)) node.setAttribute(attribute, translateText(node.getAttribute(attribute)));
+            }
+        }
         const select = document.querySelector('#language-select'); if (select) select.value = language;
     }
     function setLanguage(next) { if (!['en', 'zh'].includes(next) || next === language) return; language = next; localStorage.setItem('codex-auth-switcher-language', language); location.reload(); }

@@ -1,5 +1,6 @@
 /* Adapt the shared desktop renderer to the authenticated remote backend. */
 (() => {
+    const tr = text => window.i18n?.t(text) || text;
     function redirectToLogin(message) {
         if (sessionStorage.getItem('codex-auth-login-redirect')) return false;
         sessionStorage.setItem('codex-auth-login-redirect', '1');
@@ -31,7 +32,7 @@
     window.authSwitcher = Object.freeze({
         async call(action, input) {
             const route = routes[action];
-            if (!route) return { ok: false, error: '不支持的操作' };
+            if (!route) return { ok: false, error: tr('不支持的操作') };
             const readSettings = (action === 'priority' || action === 'settings') && input === undefined;
             try { return { ok: true, result: await request(route[0], route[1] && !readSettings ? input || {} : undefined) }; }
             catch (error) { return { ok: false, error: error.message }; }
@@ -53,13 +54,13 @@
         if (directoryOpen) return false;
         directoryOpen = true;
         const dialog = document.createElement('dialog'); dialog.className = 'web-directory';
-        dialog.setAttribute('aria-label', 'Choose remote auth directory');
-        dialog.innerHTML = '<h2>Choose remote auth directory</h2><p class="muted">Browse folders on this Linux host. Selecting a directory clears the proxy account selection and keeps existing Codex auth unchanged.</p><form class="web-path"><input aria-label="Remote directory path" required><button>Open</button></form><button class="web-parent">Parent</button><div class="web-folders"></div><p class="muted web-directory-status" role="status"></p><div class="actions"><button class="web-cancel">Cancel</button><button class="primary web-select">Use this directory</button></div>';
+        dialog.setAttribute('aria-label', tr('Choose remote auth directory'));
+        dialog.innerHTML = `<h2>${tr('Choose remote auth directory')}</h2><p class="muted">${tr('Browse folders on this Linux host. Selecting a directory clears the proxy account selection and keeps existing Codex auth unchanged.')}</p><form class="web-path"><input aria-label="${tr('Remote directory path')}" required><button>${tr('Open')}</button></form><button class="web-parent">${tr('Parent')}</button><div class="web-folders"></div><p class="muted web-directory-status" role="status"></p><div class="actions"><button class="web-cancel">${tr('Cancel')}</button><button class="primary web-select">${tr('Use this directory')}</button></div>`;
         const field = dialog.querySelector('input'), list = dialog.querySelector('.web-folders');
         const info = dialog.querySelector('.web-directory-status'), select = dialog.querySelector('.web-select');
         let current, loaded = false;
         async function load(target = '') {
-            loaded = false; select.disabled = true; info.textContent = '读取目录…';
+            loaded = false; select.disabled = true; info.textContent = tr('读取目录…');
             try {
                 current = await request('directories?path=' + encodeURIComponent(target));
                 field.value = current.path; list.replaceChildren();
@@ -67,7 +68,7 @@
                     const button = document.createElement('button'); button.textContent = entry.name;
                     button.onclick = () => load(entry.path); list.append(button);
                 }
-                info.textContent = current.directories.length ? '选择文件夹进入，或使用当前目录。' : '此目录没有可见子文件夹。';
+                info.textContent = tr(current.directories.length ? '选择文件夹进入，或使用当前目录。' : '此目录没有可见子文件夹。');
                 loaded = true; select.disabled = false;
             } catch (error) { info.textContent = error.message; }
         }
@@ -87,7 +88,7 @@
     }
     const actions = document.querySelector('header .actions');
     const upload = document.createElement('button'), logout = document.createElement('button');
-    upload.textContent = '导入授权文件'; logout.textContent = '退出登录';
+    upload.textContent = tr('导入授权文件'); logout.textContent = tr('退出登录');
     const input = document.createElement('input'); input.type = 'file'; input.accept = '.json'; input.multiple = true; input.hidden = true;
     const status = document.createElement('p'); status.className = 'muted web-status'; status.setAttribute('role', 'status');
     actions.append(upload, logout, input); document.querySelector('header').after(status);
@@ -102,12 +103,13 @@
                 if (file.size > 1024 * 1024) throw Error('文件超过 1 MiB：' + file.name);
                 await request('import', { name: file.name, auth: await file.text() }); imported++;
             }
-            status.textContent = `已导入 ${imported} 个账号。`; document.getElementById('refresh').click();
-        } catch (error) { status.textContent = `已导入 ${imported} 个账号；${error.message}`; if (imported) document.getElementById('refresh').click(); }
+            status.textContent = tr(`已导入 ${imported} 个账号。`); document.getElementById('refresh').click();
+        } catch (error) { status.textContent = tr(`已导入 ${imported} 个账号；`) + error.message; if (imported) document.getElementById('refresh').click(); }
         finally { upload.disabled = false; input.value = ''; }
     };
     logout.onclick = async () => {
         try { await request('logout', {}); location.replace('/'); }
-        catch (error) { status.textContent = error.message; }
+        catch (error) { status.textContent = tr(error.message); }
     };
+    window.i18n?.apply();
 })();
