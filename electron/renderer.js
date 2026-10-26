@@ -31,18 +31,18 @@ function renderCapacityRetrySettings(settings = health?.capacity_retry || { enab
 async function savePriorityBoard(enabledZone, disabledZone, status) {
     const order = [...enabledZone.querySelectorAll('.account-card'), ...disabledZone.querySelectorAll('.account-card')].map(row => row.dataset.name);
     const disabled = [...disabledZone.querySelectorAll('.account-card')].map(row => row.dataset.name);
-    try { status.textContent = '保存中…'; const result = await call('priority', { priority: { enabled: order.length > disabled.length, order, disabled } }); priorityData.priority = result.priority; priorityData.entries = order.map(name => ({ name, enabled: !disabled.includes(name) })); status.textContent = '已保存'; setTimeout(() => { if (status.textContent === '已保存') status.textContent = ''; }, 1800); }
-    catch (error) { status.textContent = `保存失败：${error.message}`; }
+    try { status.textContent = tr('保存中…'); const result = await call('priority', { priority: { enabled: order.length > disabled.length, order, disabled } }); priorityData.priority = result.priority; priorityData.entries = order.map(name => ({ name, enabled: !disabled.includes(name) })); status.textContent = tr('已保存'); setTimeout(() => { if (status.textContent === tr('已保存')) status.textContent = ''; }, 1800); }
+    catch (error) { status.textContent = tr(`保存失败：${error.message}`); }
 }
 function renderRequestLogs() {
     const target = document.querySelector('#request-logs-list'); target.replaceChildren();
-    document.querySelector('#request-logs-page-label').textContent = `第 ${requestLogsPage} / ${requestLogsTotalPages} 页 · 共 ${requestLogsTotal} 条`;
+    document.querySelector('#request-logs-page-label').textContent = tr(`第 ${requestLogsPage} / ${requestLogsTotalPages} 页 · 共 ${requestLogsTotal} 条`);
     document.querySelector('#request-logs-prev').disabled = requestLogsPage <= 1; document.querySelector('#request-logs-next').disabled = requestLogsPage >= requestLogsTotalPages;
     for (const item of requestLogs) { const button = element('button', `request-log-row ${item.success ? 'success' : 'failure'}`); button.type = 'button'; button.append(element('strong', '', `${item.method} ${item.path} · ${item.model || '模型未知'}`), element('span', '', `${item.startedAt} · HTTP ${item.status || '—'} · ${item.durationMs} ms · 尝试 ${item.attemptCount || 1}${item.errorCode ? ` · ${item.errorCode}` : ''}`)); button.onclick = () => showRequestLog(item.id); target.append(button); }
     if (!requestLogs.length) target.append(element('p', 'muted', '暂无请求记录。'));
 }
 async function refreshRequestLogs(page = requestLogsPage) { const target = document.querySelector('#request-logs-list'); target.replaceChildren(element('p', 'request-logs-loading', '正在读取请求记录…')); try { const result = await call('requestLogs', { page, filter: requestLogsFilter }); requestLogs = result.logs || []; requestLogsPage = result.page || 1; requestLogsTotalPages = result.totalPages || 1; requestLogsTotal = result.total || 0; renderRequestLogs(); } catch (error) { target.replaceChildren(element('p', 'card-status error', error.message)); } }
-async function showRequestLog(id) { const detail = document.querySelector('#request-log-detail'); detail.setAttribute('aria-busy', 'true'); document.querySelector('#request-log-detail-title').textContent = '读取记录…'; document.querySelector('#request-log-request-body').textContent = '读取中…'; document.querySelector('#request-log-response-body').textContent = '读取中…'; try { const item = await call('requestLog', { id }); let events = item.errorEvents; try { events = JSON.parse(item.errorEvents || '[]'); } catch {} document.querySelector('#request-log-detail-title').textContent = `记录 #${item.id} · ${item.method} ${item.path}`; document.querySelector('#request-log-detail-meta').textContent = `${item.startedAt} · 模型 ${item.model || '未知'} · HTTP ${item.status || '—'} · ${item.durationMs} ms · 尝试 ${item.attemptCount || 1} · ${item.success ? '成功' : '失败'}${item.errorCode ? ` · ${item.errorCode}` : ''}${item.errorMessage ? ` · ${item.errorMessage}` : ''} · 错误事件 ${events.length}`; document.querySelector('#request-log-request-body').textContent = item.requestBody || '(空)'; document.querySelector('#request-log-response-body').textContent = (events.length ? `尝试错误：\n${JSON.stringify(events, null, 2)}\n\n` : '') + (item.responseBody || '(空)'); } catch (error) { document.querySelector('#request-log-detail-meta').textContent = error.message; } finally { detail.removeAttribute('aria-busy'); } }
+async function showRequestLog(id) { const detail = document.querySelector('#request-log-detail'); detail.setAttribute('aria-busy', 'true'); document.querySelector('#request-log-detail-title').textContent = tr('读取记录…'); document.querySelector('#request-log-request-body').textContent = tr('读取中…'); document.querySelector('#request-log-response-body').textContent = tr('读取中…'); try { const item = await call('requestLog', { id }); let events = item.errorEvents; try { events = JSON.parse(item.errorEvents || '[]'); } catch {} document.querySelector('#request-log-detail-title').textContent = tr(`记录 #${item.id} · ${item.method} ${item.path}`); document.querySelector('#request-log-detail-meta').textContent = tr(`${item.startedAt} · 模型 ${item.model || '未知'} · HTTP ${item.status || '—'} · ${item.durationMs} ms · 尝试 ${item.attemptCount || 1} · ${item.success ? '成功' : '失败'}${item.errorCode ? ` · ${item.errorCode}` : ''}${item.errorMessage ? ` · ${item.errorMessage}` : ''} · 错误事件 ${events.length}`); document.querySelector('#request-log-request-body').textContent = item.requestBody || '(空)'; document.querySelector('#request-log-response-body').textContent = (events.length ? `尝试错误：\n${JSON.stringify(events, null, 2)}\n\n` : '') + (item.responseBody || '(空)'); } catch (error) { document.querySelector('#request-log-detail-meta').textContent = tr(error.message); } finally { detail.removeAttribute('aria-busy'); } }
 
 function openDeepSeek(item) {
     const form = document.querySelector('#deepseek-form');
@@ -137,7 +137,7 @@ function renderStatistics() {
     for (const button of document.querySelectorAll('#statistics-period button')) button.setAttribute('aria-pressed', String(button.dataset.period === period));
     const data = statisticsData.periods?.[period] || statisticsData;
     if (!data || !Array.isArray(data.accounts) || !data.totals) {
-        document.querySelector('#statistics-status').textContent = '统计数据格式不完整，请刷新代理后重试。';
+        document.querySelector('#statistics-status').textContent = tr('统计数据格式不完整，请刷新代理后重试。');
         return;
     }
     const files = statisticsData.files || [];
@@ -160,8 +160,8 @@ function renderStatistics() {
     const filter = available.get(selected);
     const rows = selected === 'all' ? [...current.values()] : [{ ...(current.get(filter.id) || filter), name: filter.name }];
     const totals = selected === 'all' ? data.totals : rows[0];
-    document.querySelector('#statistics-title').textContent = `${{ day: '今日', week: '本周', month: '本月' }[period]} Token 用量`;
-    document.querySelector('#statistics-day').textContent = `${data.start === data.end ? data.start : data.start + ' 至 ' + data.end} · 北京时间 · 周一开始 / 自然月 · 数据保存在本机`;
+    document.querySelector('#statistics-title').textContent = tr(`${{ day: '今日', week: '本周', month: '本月' }[period]} Token 用量`);
+    document.querySelector('#statistics-day').textContent = tr(`${data.start === data.end ? data.start : data.start + ' 至 ' + data.end} · 北京时间 · 周一开始 / 自然月 · 数据保存在本机`);
     const summary = document.querySelector('#statistics-summary');
     summary.replaceChildren(metric('总 Token', tokenNumber(totals?.total_tokens), '已收到上游用量', 'good'),
         metric('输入 Token', tokenNumber(totals?.input_tokens), `其中缓存 ${tokenNumber(totals?.cached_tokens)}`),
@@ -171,11 +171,11 @@ function renderStatistics() {
         summary.children[index].title = `${number(count)} Token`;
     });
     document.querySelector('#statistics-coverage').textContent = totals?.unknown_requests
-        ? `${number(totals.unknown_requests)} 次请求未收到完整用量（中断、失败或上游未提供），总 Token 可能低于实际消耗。`
-        : '无未知用量请求。未经过本地代理的调用不在统计范围内。';
+        ? tr(`${number(totals.unknown_requests)} 次请求未收到完整用量（中断、失败或上游未提供），总 Token 可能低于实际消耗。`)
+        : tr('无未知用量请求。未经过本地代理的调用不在统计范围内。');
     const chart = document.querySelector('#statistics-hours');
     chart.replaceChildren();
-    document.querySelector('#statistics-chart-title').textContent = period === 'day' ? '每小时 Token' : '每日 Token';
+    document.querySelector('#statistics-chart-title').textContent = tr(period === 'day' ? '每小时 Token' : '每日 Token');
     const hours = totals?.buckets || data.buckets.map(() => 0);
     const max = Math.max(1, ...hours);
     chart.setAttribute('aria-label', hours.map((count, index) => `${data.buckets[index]} ${period === 'day' ? '点' : ''} ${number(count)} Token`).join('，'));
@@ -213,7 +213,7 @@ async function refreshStatistics() {
 
 async function updateCurl() {
     if (health?.lan_enabled && !health.lan_addresses?.length) {
-        document.querySelector('#curl-preview').textContent = '未发现局域网 IPv4 地址，请检查网络连接。';
+        document.querySelector('#curl-preview').textContent = tr('未发现局域网 IPv4 地址，请检查网络连接。');
         document.querySelector('#copy-curl').disabled = true;
         return;
     }
@@ -577,7 +577,7 @@ document.querySelector('#back-from-logs').addEventListener('click', () => { docu
 document.querySelector('#refresh-request-logs').addEventListener('click', () => refreshRequestLogs());
 document.querySelector('#request-log-filter').addEventListener('change', event => { requestLogsFilter = event.target.value; requestLogsPage = 1; refreshRequestLogs(1); });
 document.querySelector('#request-logs-prev').addEventListener('click', () => refreshRequestLogs(requestLogsPage - 1)); document.querySelector('#request-logs-next').addEventListener('click', () => refreshRequestLogs(requestLogsPage + 1)); document.querySelector('#request-logs-go').addEventListener('click', () => refreshRequestLogs(Number(document.querySelector('#request-logs-page-input').value) || 1));
-document.querySelector('#close-request-log-detail').addEventListener('click', () => { document.querySelector('#request-log-detail-meta').textContent = '从左侧选择一条记录。'; document.querySelector('#request-log-request-body').textContent = '(未选择记录)'; document.querySelector('#request-log-response-body').textContent = '(未选择记录)'; });
+document.querySelector('#close-request-log-detail').addEventListener('click', () => { document.querySelector('#request-log-detail-meta').textContent = tr('从左侧选择一条记录。'); document.querySelector('#request-log-request-body').textContent = tr('(未选择记录)'); document.querySelector('#request-log-response-body').textContent = tr('(未选择记录)'); });
 async function switchCodexAccount(name) {
     busy = true;
     render();
@@ -601,11 +601,11 @@ document.querySelector('#copy-curl').addEventListener('click', async () => {
     button.disabled = true;
     try { status.textContent = await api.curlCommand('copy', document.querySelector('#curl-target').value,
         document.querySelector('#curl-stream').value === 'true') ? '已复制，可粘贴到对应电脑终端。' : '已取消复制。'; }
-    catch { status.textContent = '复制失败，请确认本地代理运行、所选地址可用。'; }
+    catch { status.textContent = tr('复制失败，请确认本地代理运行、所选地址可用。'); }
     finally { button.disabled = false; }
 });
 for (const id of ['curl-target', 'curl-stream']) document.querySelector('#' + id).addEventListener('change', () => updateCurl().catch(() => {
-    document.querySelector('#curl-preview').textContent = '地址已变化，请刷新后重试。';
+    document.querySelector('#curl-preview').textContent = tr('地址已变化，请刷新后重试。');
 }));
 for (const id of ['lan-enabled', 'proxy-port']) document.querySelector('#' + id).addEventListener('input', () => { networkDirty = true; });
 document.querySelector('#apply-network').addEventListener('click', async () => {
@@ -617,8 +617,8 @@ document.querySelector('#apply-network').addEventListener('click', async () => {
         const result = await api.networkSettings({ lan_enabled: document.querySelector('#lan-enabled').checked,
             port: Number(document.querySelector('#proxy-port').value) });
         networkDirty = false;
-        status.textContent = result.canceled ? '已取消。' : result.configChanged
-            ? '已应用并更新 Codex Base URL，请重启 Codex。' : '网络设置已应用。';
+        status.textContent = tr(result.canceled ? '已取消。' : result.configChanged
+            ? '已应用并更新 Codex Base URL，请重启 Codex。' : '网络设置已应用。');
     } catch (error) { status.textContent = error.message; }
     finally { networkBusy = false; button.disabled = false; await updateHealth(); }
 });

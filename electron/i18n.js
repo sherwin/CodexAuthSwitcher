@@ -96,6 +96,16 @@
         '成功': 'Success', '失败': 'Failed', '模型未知': 'Unknown model', '未知': 'Unknown', '（历史）': '(history)', '点': 'hour', '精确用量': 'Exact usage', '次请求未收到完整用量（中断、失败或上游未提供），总 Token 可能低于实际消耗。': ' requests did not return complete usage (interrupted, failed, or not provided upstream); total tokens may be lower than actual usage.', '无未知用量请求。未经过本地代理的调用不在统计范围内。': 'No requests with unknown usage. Calls that did not pass through the local proxy are excluded.',
         '已应用并更新 Codex Base URL，请重启 Codex。': 'Applied and updated the Codex Base URL. Restart Codex.', '网络设置已应用。': 'Network settings applied.', '已复制，可粘贴到对应电脑终端。': 'Copied. Paste it into the target computer terminal.', '已取消复制。': 'Copy cancelled.', '地址已变化，请刷新后重试。': 'The address changed. Refresh and try again.',
         ' · 与会员到期无关': ' · independent of membership expiry', '· 与会员到期无关': '· independent of membership expiry', '局域网 Base URL：': 'LAN Base URL: ',
+        'Key 配置已覆盖新旧会话的连接标识 · 等待 Codex 请求验证。请完全退出并重开 Codex，然后在原会话发送消息验证；无需新建会话。之后切换代理出口无需重启。': 'Key configuration covers new and existing session identifiers; waiting for a Codex request to verify it. Fully quit and reopen Codex, then send a message in the existing conversation; no new conversation is needed. Switching proxy accounts afterward does not require a restart.',
+        'Key 配置未匹配：Codex 配置被改动或无法读取。点击「修复 Key 配置」，保留其他设置并重新写入代理地址和 Key。': 'Key configuration mismatch: Codex configuration was changed or cannot be read. Click “Repair key configuration” to preserve other settings and write the proxy URL and key again.',
+        'Key 配置已覆盖新旧会话。请完全退出并重开 Codex，在原会话发送消息验证；聊天记录不变。': 'Key configuration covers new and existing sessions. Fully quit and reopen Codex, then send a message in the existing conversation to verify it; chat history is unchanged.',
+        'Base URL 配置无效': 'Invalid Base URL configuration', '全部账号': 'All accounts', '已收到上游用量': 'Usage received from upstream',
+        '所选周期和账号没有经过代理的请求。': 'No proxied requests for the selected period and account.', '统计已更新，每 10 秒自动刷新。': 'Statistics updated; refreshes every 10 seconds.',
+        '统计数据格式不完整，请刷新代理后重试。': 'Statistics data is incomplete. Refresh the proxy and try again.', '统计读取失败：': 'Failed to read statistics: ',
+        '已设为空；Codex 现有配置和授权未改写，本地代理继续运行。': 'Set to none; existing Codex configuration and auth were not changed, and the local proxy continues running.',
+        '已将该 API 账号应用为 Codex 直连地址，请重启 Codex。': 'Applied this API account as the direct Codex URL. Restart Codex.', '保存失败：': 'Save failed: ',
+        '登录已过期': 'Session expired', '已知用量': 'Known usage', '查询额度中…': 'Checking usage…',
+        '(未选择记录)': '(No record selected)', '(空)': '(Empty)',
     };
     const reverse = Object.fromEntries(Object.entries(translations).map(([zh, en]) => [en, zh]));
     const englishToChinese = {
@@ -127,6 +137,18 @@
             .replace(/^Codex 当前配置：授权文件直连 · (.+)。更新授权后需重启 Codex；代理仍独立运行。$/, 'Current Codex configuration: auth-file direct · $1. Restart Codex after updating auth; the proxy still runs independently.')
             .replace(/^尚未由工具配置 Codex。(.+)$/, 'Codex has not been configured by this tool. $1')
             .replace(/^(.+) 个请求进行中$/, '$1 request(s) in flight')
+            .replace(/^(.+) · 北京时间 · 周一开始 \/ 自然月 · 数据保存在本机$/, '$1 · Beijing time · Monday start / calendar month · data saved locally')
+            .replace(/ · 模型 /g, ' · model ').replace(/ · 尝试 /g, ' · attempts ').replace(/ · 错误事件 /g, ' · error events ')
+            .replace(/ · 成功/g, ' · success').replace(/ · 失败/g, ' · failed')
+            .replace(/^Codex 已切换到 (.+)，请重启 Codex；代理出口未改变。$/, 'Codex switched to $1. Restart Codex; the proxy account is unchanged.')
+            .replace(/^保存失败：(.+)$/, 'Save failed: $1')
+            .replace(/^已导入 (\d+) 个账号。$/, 'Imported $1 account(s).').replace(/^已导入 (\d+) 个账号；$/, 'Imported $1 account(s);')
+            .replace(/^(.+) 次请求未收到完整用量（中断、失败或上游未提供），总 Token 可能低于实际消耗。$/, '$1 requests did not return complete usage (interrupted, failed, or not provided upstream); total tokens may be lower than actual usage.')
+            .replace(/^宽限至 (.+)$/, 'Grace period until $1')
+            .replace(/^续费 (.+)$/, 'Renews $1')
+            .replace(/^已知用量 (.+) 次$/, 'Known usage: $1 requests')
+            .replace(/^代理错误：(.+)$/, 'Proxy error: $1')
+            .replace(/^统计读取失败：(.+)。显示数据可能不是最新。$/, 'Failed to read statistics: $1. The displayed data may be stale.')
             .replace(/^正在写入 (.+) 的 Codex 授权文件…$/, 'Writing the Codex auth file for $1…')
             .replace(/^代理出口已切换到 (.+)，新请求立即生效；Codex 直连授权未改变。$/, 'Proxy account switched to $1; new requests use it immediately. Direct Codex auth is unchanged.')
             .replace(/^刷新 (.+) 的额度和状态$/, 'Refresh usage and status for $1')
