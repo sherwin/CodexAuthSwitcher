@@ -84,11 +84,11 @@
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
         const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
         for (const node of nodes) { if (node.parentElement?.closest('script,style')) continue; const original = node.nodeValue; const translated = translateText(language === 'en' ? original : (reverse[original] || original)); if (translated !== original) node.nodeValue = translated; }
-        const button = document.querySelector('#language-toggle'); if (button) button.textContent = language === 'en' ? '中文' : 'English';
+        const select = document.querySelector('#language-select'); if (select) select.value = language;
     }
-    function toggle() { language = language === 'en' ? 'zh' : 'en'; localStorage.setItem('codex-auth-switcher-language', language); location.reload(); }
-    window.i18n = Object.freeze({ get language() { return language; }, t: translateText, apply, toggle });
+    function setLanguage(next) { if (!['en', 'zh'].includes(next) || next === language) return; language = next; localStorage.setItem('codex-auth-switcher-language', language); location.reload(); }
+    window.i18n = Object.freeze({ get language() { return language; }, t: translateText, apply, setLanguage });
     document.addEventListener('DOMContentLoaded', () => {
-        apply(); document.querySelector('#language-toggle')?.addEventListener('click', toggle);
+        apply(); document.querySelector('#language-select')?.addEventListener('change', event => setLanguage(event.target.value));
     });
 })();
