@@ -95,7 +95,7 @@
         '查看日周月 Token 用量': 'View daily, weekly and monthly token usage', '今日每小时 Token 柱状图': 'Hourly token chart for today', '配置管理': 'Configuration', '筛选账号': 'Filter account', '筛选错误类型': 'Filter error type', '统计周期': 'Statistics period', '关闭提示': 'Dismiss notification',
         '成功': 'Success', '失败': 'Failed', '模型未知': 'Unknown model', '未知': 'Unknown', '（历史）': '(history)', '点': 'hour', '精确用量': 'Exact usage', '次请求未收到完整用量（中断、失败或上游未提供），总 Token 可能低于实际消耗。': ' requests did not return complete usage (interrupted, failed, or not provided upstream); total tokens may be lower than actual usage.', '无未知用量请求。未经过本地代理的调用不在统计范围内。': 'No requests with unknown usage. Calls that did not pass through the local proxy are excluded.',
         '已应用并更新 Codex Base URL，请重启 Codex。': 'Applied and updated the Codex Base URL. Restart Codex.', '网络设置已应用。': 'Network settings applied.', '已复制，可粘贴到对应电脑终端。': 'Copied. Paste it into the target computer terminal.', '已取消复制。': 'Copy cancelled.', '地址已变化，请刷新后重试。': 'The address changed. Refresh and try again.',
-        ' · 与会员到期无关': ' · independent of membership expiry', '局域网 Base URL：': 'LAN Base URL: ',
+        ' · 与会员到期无关': ' · independent of membership expiry', '· 与会员到期无关': '· independent of membership expiry', '局域网 Base URL：': 'LAN Base URL: ',
     };
     const reverse = Object.fromEntries(Object.entries(translations).map(([zh, en]) => [en, zh]));
     const englishToChinese = {
