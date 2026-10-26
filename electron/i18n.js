@@ -43,7 +43,7 @@
         '默认 18888 · 管理接口仅限本机 · 局域网 HTTP 不加密，请勿公网转发。Key 模式改端口会同步 Codex 地址，需重启 Codex；远程客户端须自行更新。': 'Default 18888 · management APIs stay local · LAN HTTP is unencrypted; do not expose it publicly. Changing the key-mode port updates the Codex URL; restart Codex and update remote clients.',
         '此目录没有 JSON 授权文件，请选择授权目录。': 'This directory has no JSON auth files. Choose an auth directory.',
         '复制': 'Copy', '一键复制完整 curl': 'Copy full curl command', 'curl 调用示例 · 当前代理出口': 'curl example · current proxy account',
-        '时间不可用': 'Time unavailable', '管理账号继续。': 'Continue with the administrator account.',
+        '时间不可用': 'Time unavailable', '管理账号继续。': 'Continue with the administrator account.', '登录已过期，请重新登录。': 'Session expired. Please sign in again.',
         '固定本地密钥 · 流式转发': 'Fixed local key · streaming relay', '调用地址': 'Request URL', '返回方式': 'Response mode',
         '默认返回完整 JSON。预览隐藏 Key，一键复制包含真实本地 Key；消耗代理出口账号额度。请勿公开命令，Key 会留在剪贴板和终端历史中。': 'Returns complete JSON by default. The preview hides the key; copying includes the local key and consumes the proxy account quota. Do not share the command; the key remains in clipboard and shell history.',
         '账号名称': 'Account name', '例如：DeepSeek 主账号': 'Example: DeepSeek primary account',
