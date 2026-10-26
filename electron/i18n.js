@@ -95,6 +95,7 @@
         '查看日周月 Token 用量': 'View daily, weekly and monthly token usage', '今日每小时 Token 柱状图': 'Hourly token chart for today', '配置管理': 'Configuration', '筛选账号': 'Filter account', '筛选错误类型': 'Filter error type', '统计周期': 'Statistics period', '关闭提示': 'Dismiss notification',
         '成功': 'Success', '失败': 'Failed', '模型未知': 'Unknown model', '未知': 'Unknown', '（历史）': '(history)', '点': 'hour', '精确用量': 'Exact usage', '次请求未收到完整用量（中断、失败或上游未提供），总 Token 可能低于实际消耗。': ' requests did not return complete usage (interrupted, failed, or not provided upstream); total tokens may be lower than actual usage.', '无未知用量请求。未经过本地代理的调用不在统计范围内。': 'No requests with unknown usage. Calls that did not pass through the local proxy are excluded.',
         '已应用并更新 Codex Base URL，请重启 Codex。': 'Applied and updated the Codex Base URL. Restart Codex.', '网络设置已应用。': 'Network settings applied.', '已复制，可粘贴到对应电脑终端。': 'Copied. Paste it into the target computer terminal.', '已取消复制。': 'Copy cancelled.', '地址已变化，请刷新后重试。': 'The address changed. Refresh and try again.',
+        ' · 与会员到期无关': ' · independent of membership expiry', '局域网 Base URL：': 'LAN Base URL: ',
     };
     const reverse = Object.fromEntries(Object.entries(translations).map(([zh, en]) => [en, zh]));
     const englishToChinese = {
@@ -121,6 +122,7 @@
             .replace(/^飞书连接运行中 · PID (\d+)$/, 'Feishu bridge running · PID $1')
             .replace(/^局域网 (.+)$/, 'LAN $1')
             .replace(/^授权令牌到期 (.+) · 与会员到期无关$/, 'Auth token expires $1 · independent of membership expiry')
+            .replace(/^授权令牌到期 (.+)$/, 'Auth token expires $1')
             .replace(/^Codex 当前配置：局域网 Base URL · (.+)。更新地址或 Key 后需重启 Codex。$/, 'Current Codex configuration: LAN base URL · $1. Restart Codex after updating the URL or key.')
             .replace(/^Codex 当前配置：授权文件直连 · (.+)。更新授权后需重启 Codex；代理仍独立运行。$/, 'Current Codex configuration: auth-file direct · $1. Restart Codex after updating auth; the proxy still runs independently.')
             .replace(/^尚未由工具配置 Codex。(.+)$/, 'Codex has not been configured by this tool. $1')
