@@ -29,6 +29,20 @@ and pull requests. The isolated native smoke test checks the real window,
 preload, gateway and packaged icon without touching existing Codex files.
 Packaging is unsigned CI validation, not production notarization.
 
+### Publish a release
+
+Push a version tag to build and publish installers for all three desktop platforms:
+
+```sh
+git tag v1.1.1
+git push origin v1.1.1
+```
+
+The `Release desktop packages` workflow builds Windows NSIS and zip packages,
+macOS DMG and zip packages, and Linux AppImage and deb packages. It uploads all
+of them to one GitHub Release. Builds are unsigned; macOS users may need to
+approve the downloaded application in System Settings before first launch.
+
 On Windows, install `dist/Codex Auth Switcher Setup 1.1.0.exe` to create desktop
 and Start menu shortcuts. The installed application opens its own native window;
 no browser or web manager is required. Each OS uses its own configuration and
