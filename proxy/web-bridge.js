@@ -32,7 +32,8 @@
         async call(action, input) {
             const route = routes[action];
             if (!route) return { ok: false, error: '不支持的操作' };
-            try { return { ok: true, result: await request(route[0], route[1] ? input || {} : undefined) }; }
+            const readSettings = (action === 'priority' || action === 'settings') && input === undefined;
+            try { return { ok: true, result: await request(route[0], route[1] && !readSettings ? input || {} : undefined) }; }
             catch (error) { return { ok: false, error: error.message }; }
         },
         async chooseDirectory() {
