@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, dialog, clipboard,
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const { windowIcon, installDesktopShell } = require('./desktop-shell.cjs');
-if (process.platform === 'win32') app.setAppUserModelId('com.sherwin.codex-auth-switcher.electron');
+if (process.platform === 'win32') app.setAppUserModelId('org.codexauthswitcher.app');
 
 let window;
 let tray;

@@ -1,5 +1,7 @@
 # Codex Auth Switcher
 
+Codex Auth Switcher is released under the permissive [MIT License](LICENSE), which allows reuse, modification, redistribution, and commercial use. The UI defaults to English and supports switching to Simplified Chinese.
+
 Electron desktop account picker with an independently runnable Node.js Responses proxy.
 The previous Swift application is retained as a legacy version; new development uses Electron and Node.js.
 
@@ -16,7 +18,7 @@ under `~/Library/Application Support/CodexAuthSwitcher` and the default account
 directory is `~/Code/Codex-auth`; on Linux and Windows they are `~/.codex-auth-switcher` and
 `~/Codex-auth`. `CODEX_HOME` and the existing directory overrides still apply.
 
-Only the optional **Surface Feishu restart integration** is Linux/systemd-specific.
+Only the optional **Linux service restart integration** is Linux/systemd-specific.
 On macOS and Windows it stays unavailable even if its environment flag was set;
 it never runs `systemctl`, reads Linux cgroups or applies Codex configuration.
 The desktop's native directory/clipboard/tray controls remain independent.
@@ -239,9 +241,9 @@ requests, unguarded writes and unknown routes. Uploads are limited to 1 MiB and
 existing account filenames are not overwritten. Only use trusted LANs: HTTP is
 unencrypted. Do not expose this port through router forwarding.
 
-On Surface, `/etc/systemd/system/codex-auth-switcher.service` runs the web process
+On Linux, `/etc/systemd/system/codex-auth-switcher.service` runs the web process
 with `Restart=on-failure`, an explicit proxy and the private authorization directory
-`/root/Codex-auth`. It is enabled at boot. Check with
+your configured auth directory. It is enabled at boot. Check with
 `/bin/systemctl status codex-auth-switcher` and use the journal for logs.
 
 ### Original desktop functionality in a browser
@@ -271,7 +273,7 @@ pages fall back to browser copy support when the secure Clipboard API is absent.
 Closing a browser tab leaves the systemd-managed gateway running. OS-only tray,
 app menu and native filesystem dialogs are not browser controls.
 
-### Surface Codex and Feishu runtime controls
+### Codex and Feishu runtime controls
 
 On Linux, set `AUTH_SWITCHER_MANAGE_CODEX=1` in the web service environment to expose the
 runtime controls in **Codex 配置**. This integration runs only the fixed command

@@ -21,7 +21,7 @@ export function createWebOperations(directory, { call, gateway,
         async directories(input) {
             const state = await readJSON(stateFile);
             if (input && !path.isAbsolute(input))
-                throw new ProxyError('请输入 Surface 上的绝对目录路径。', 'invalid_directory', 400);
+                throw new ProxyError('Enter an absolute path on the Linux host.', 'invalid_directory', 400);
             const target = await fs.realpath(input || state.auth_directory);
             const entries = await fs.readdir(target, { withFileTypes: true });
             return { path: target, parent: path.dirname(target), directories: entries
@@ -42,7 +42,7 @@ export function createWebOperations(directory, { call, gateway,
         }),
         directory: input => exclusive(async () => {
             if (typeof input?.path !== 'string' || !path.isAbsolute(input.path))
-                throw new ProxyError('请输入 Surface 上的绝对目录路径。', 'invalid_directory', 400);
+                throw new ProxyError('Enter an absolute path on the Linux host.', 'invalid_directory', 400);
             const target = await fs.realpath(input.path);
             if (!(await fs.stat(target)).isDirectory())
                 throw new ProxyError('请选择已有目录。', 'invalid_directory', 400);

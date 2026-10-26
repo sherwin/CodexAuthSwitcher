@@ -108,7 +108,7 @@ function selectWorkspace(tab) {
     document.querySelector('#open-statistics').hidden = tab !== 'proxy';
 }
 
-const number = value => Number(value || 0).toLocaleString('zh-CN');
+const number = value => Number(value || 0).toLocaleString(typeof window !== 'undefined' && window.i18n?.language === 'zh' ? 'zh-CN' : 'en-US');
 function tokenNumber(value) {
     const count = Number(value || 0);
     if (!Number.isFinite(count) || count < 0) return '0';
@@ -230,6 +230,7 @@ function message(text, error = false) {
     notification.hidden = false;
     clearTimeout(notificationTimer);
     notificationTimer = setTimeout(() => { notification.hidden = true; }, error ? 10000 : 5000);
+    window.i18n?.apply();
 }
 
 async function call(action, input) {
@@ -241,7 +242,7 @@ async function call(action, input) {
 function date(value, time = true) {
     if (!value) return '时间不可用';
     const parsed = new Date(typeof value === 'number' ? value * 1000 : value);
-    return Number.isFinite(parsed.getTime()) ? parsed.toLocaleString('zh-CN', time ?
+    return Number.isFinite(parsed.getTime()) ? parsed.toLocaleString(typeof window !== 'undefined' && window.i18n?.language === 'zh' ? 'zh-CN' : 'en-US', time ?
         { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false } :
         { year: 'numeric', month: '2-digit', day: '2-digit' }) : '时间不可用';
 }
@@ -261,7 +262,7 @@ function resetColor(value) {
 function element(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
-    if (text !== undefined) node.textContent = text;
+    if (text !== undefined) node.textContent = window.i18n?.t(text) || text;
     return node;
 }
 
@@ -285,6 +286,7 @@ function render() {
     renderAccounts(accounts, false);
     renderAccounts(document.querySelector('#codex-accounts'), true);
     window.scrollTo({ left: scrollX, top: scrollY, behavior: 'instant' });
+    window.i18n?.apply();
 }
 
 function renderAccounts(target, direct) {

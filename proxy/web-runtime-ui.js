@@ -4,7 +4,7 @@
         sessionStorage.setItem('codex-auth-login-redirect', '1'); location.replace('/'); return true;
     }
     const panel = document.createElement('section'); panel.className = 'card web-runtime'; panel.hidden = true;
-    panel.innerHTML = '<h3>Surface Codex／飞书连接</h3><p class="muted">应用 Key 模式或切换授权文件后，可在这里重启飞书连接及其 Codex 子进程。代理模式只需首次接入时重启；之后切换代理出口，新请求立即生效。</p><p class="muted web-runtime-status" role="status">读取服务状态…</p><div class="actions"><button class="web-runtime-restart">重启 Codex／飞书连接</button><button class="primary web-runtime-proxy">应用代理模式并重启</button></div><p class="muted web-runtime-result" role="status"></p>';
+    panel.innerHTML = '<h3>Codex / Feishu connection</h3><p class="muted">Restart the Feishu bridge and its Codex child processes after applying key mode or switching an auth file. Proxy account changes take effect on new requests without a restart.</p><p class="muted web-runtime-status" role="status">Loading service status…</p><div class="actions"><button class="web-runtime-restart">Restart Codex / Feishu</button><button class="primary web-runtime-proxy">Apply proxy mode and restart</button></div><p class="muted web-runtime-result" role="status"></p>';
     document.querySelector('.codex-panel').append(panel);
     const state = panel.querySelector('.web-runtime-status'), result = panel.querySelector('.web-runtime-result');
     const buttons = [...panel.querySelectorAll('button')];
@@ -39,10 +39,10 @@
     }
     function confirmRestart(proxy) {
         const dialog = document.createElement('dialog'); dialog.className = 'web-directory';
-        dialog.setAttribute('aria-label', '确认重启 Surface Codex');
+        dialog.setAttribute('aria-label', 'Confirm Codex restart');
         const text = document.createElement('p'); text.textContent =
-            (proxy ? '将 Surface Codex 接入本地代理，并重启飞书连接。' : '重启 Surface 的飞书连接及其 Codex 子进程。') +
-            '正在执行的飞书任务会中断，已有聊天记录保留。';
+            (proxy ? 'Connect Codex to the local proxy and restart Feishu.' : 'Restart the Feishu bridge and its Codex child processes.') +
+            ' Running Feishu tasks will be interrupted; existing chat history is kept.';
         const actions = document.createElement('div'); actions.className = 'actions';
         const cancel = document.createElement('button'), confirm = document.createElement('button');
         cancel.textContent = '取消'; confirm.textContent = '确认重启'; confirm.className = 'primary';

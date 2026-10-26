@@ -16,7 +16,7 @@ test('web uses the original renderer and API logic for accounts, modes, statisti
     assert.match(html, /web-bridge.js/); assert.match(html, /connect-src 'self'/);
     assert.match(page.headers.get('content-security-policy'), /script-src 'self'/);
     assert.equal(await (await f.request('/renderer.js')).text(), await fs.readFile(new URL('../electron/renderer.js', import.meta.url), 'utf8'));
-    for (const url of ['/style.css', '/web-bridge.js', '/web.css']) assert.equal((await f.request(url)).status, 200);
+    for (const url of ['/style.css', '/i18n.js', '/web-bridge.js', '/web.css']) assert.equal((await f.request(url)).status, 200);
     for (const url of ['/proxy.json', '/preload.cjs', '/main.cjs', '/web-auth.mjs', '/%2e%2e/package.json']) assert.equal((await f.request(url)).status, 404);
     assert.equal((await json('/api/accounts')).accounts.length, 2);
     assert.equal((await json('/api/usage', { name: 'alpha.json' })).data.plan_type, 'plus');

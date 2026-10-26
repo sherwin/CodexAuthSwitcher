@@ -5,6 +5,7 @@ const assets = new Map([
     ['/style.css', [new URL('style.css', desktopRoot), 'text/css']],
     ['/login.css', [new URL('./web-login.css', import.meta.url), 'text/css']],
     ['/renderer.js', [new URL('renderer.js', desktopRoot), 'text/javascript']],
+    ['/i18n.js', [new URL('i18n.js', desktopRoot), 'text/javascript']],
     ['/web-bridge.js', [new URL('./web-bridge.js', import.meta.url), 'text/javascript']],
     ['/web-runtime-ui.js', [new URL('./web-runtime-ui.js', import.meta.url), 'text/javascript']],
     ['/web.css', [new URL('./web.css', import.meta.url), 'text/css']],
@@ -16,7 +17,7 @@ export async function desktopHTML() {
         .replace('<script src="renderer.js">', '<script src="web-bridge.js"></script>\n  <script src="web-runtime-ui.js"></script>\n  <script src="renderer.js">');
 }
 export async function webAsset(url, { publicOnly = false } = {}) {
-    if (publicOnly && !['/style.css', '/login.css'].includes(url)) return;
+    if (publicOnly && !['/style.css', '/login.css', '/i18n.js'].includes(url)) return;
     const asset = assets.get(url);
     return asset && { content: await fs.readFile(asset[0]), type: asset[1] + '; charset=utf-8' };
 }

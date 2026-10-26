@@ -3,7 +3,7 @@
   "version": "1.1.0",
   "private": true,
   "description": "Cross-platform Codex account manager and local Responses proxy",
-  "author": "sherwin",
+  "author": "Codex Auth Switcher contributors",
   "type": "module",
   "main": "electron/main.cjs",
   "engines": { "node": ">=20" },
@@ -31,7 +31,7 @@
     "electron-builder": "^26.0.12"
   },
   "build": {
-    "appId": "com.sherwin.codex-auth-switcher.electron",
+    "appId": "org.codexauthswitcher.app",
     "productName": "Codex Auth Switcher",
     "files": ["electron/**/*", "proxy/**/*", "package.json"],
     "mac": { "target": "dir", "category": "public.app-category.developer-tools", "icon": "electron/assets/icon.icns" },

@@ -1,4 +1,4 @@
-/* Adapt the unchanged desktop renderer to the authenticated Surface backend. */
+/* Adapt the shared desktop renderer to the authenticated remote backend. */
 (() => {
     function redirectToLogin(message) {
         if (sessionStorage.getItem('codex-auth-login-redirect')) return false;
@@ -44,7 +44,7 @@
             return action === 'copy' ? copyText(command) : command;
         },
         async networkSettings(input) {
-            if (input.lan_enabled && !confirm('允许局域网电脑使用 Surface 的代理？持有 Key 的电脑可以消耗当前账号额度。HTTP 不加密，请仅在可信局域网开启。')) return { canceled: true };
+            if (input.lan_enabled && !confirm('Allow LAN computers to use this Linux host proxy? Anyone with the key can consume the current account quota. HTTP is unencrypted; use only on a trusted LAN.')) return { canceled: true };
             return request('network', input);
         },
     });
@@ -53,8 +53,8 @@
         if (directoryOpen) return false;
         directoryOpen = true;
         const dialog = document.createElement('dialog'); dialog.className = 'web-directory';
-        dialog.setAttribute('aria-label', '选择 Surface 授权目录');
-        dialog.innerHTML = '<h2>选择 Surface 授权目录</h2><p class="muted">这里显示 Surface 上的文件夹。选择后代理出口将清空，Codex 现有授权保持不变。</p><form class="web-path"><input aria-label="Surface 目录路径" required><button>前往</button></form><button class="web-parent">上级目录</button><div class="web-folders"></div><p class="muted web-directory-status" role="status"></p><div class="actions"><button class="web-cancel">取消</button><button class="primary web-select">使用此目录</button></div>';
+        dialog.setAttribute('aria-label', 'Choose remote auth directory');
+        dialog.innerHTML = '<h2>Choose remote auth directory</h2><p class="muted">Browse folders on this Linux host. Selecting a directory clears the proxy account selection and keeps existing Codex auth unchanged.</p><form class="web-path"><input aria-label="Remote directory path" required><button>Open</button></form><button class="web-parent">Parent</button><div class="web-folders"></div><p class="muted web-directory-status" role="status"></p><div class="actions"><button class="web-cancel">Cancel</button><button class="primary web-select">Use this directory</button></div>';
         const field = dialog.querySelector('input'), list = dialog.querySelector('.web-folders');
         const info = dialog.querySelector('.web-directory-status'), select = dialog.querySelector('.web-select');
         let current, loaded = false;
@@ -91,9 +91,9 @@
     const input = document.createElement('input'); input.type = 'file'; input.accept = '.json'; input.multiple = true; input.hidden = true;
     const status = document.createElement('p'); status.className = 'muted web-status'; status.setAttribute('role', 'status');
     actions.append(upload, logout, input); document.querySelector('header').after(status);
-    document.querySelector('header .eyebrow').textContent = 'SURFACE / LAN ACCOUNT GATEWAY';
-    document.querySelector('header .muted').textContent = '远程管理 Surface 上的本地代理与 Codex 配置。';
-    for (const id of ['directory', 'codex-directory']) document.getElementById(id).textContent = '更改 Surface 授权目录';
+    document.querySelector('header .eyebrow').textContent = 'LINUX / LAN ACCOUNT GATEWAY';
+    document.querySelector('header .muted').textContent = 'Manage the local proxy and Codex configuration on this Linux host.';
+    for (const id of ['directory', 'codex-directory']) document.getElementById(id).textContent = 'Change remote auth directory';
     upload.onclick = () => input.click();
     input.onchange = async () => {
         upload.disabled = true; let imported = 0;
