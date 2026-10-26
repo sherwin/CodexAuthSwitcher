@@ -84,13 +84,14 @@ test('key connection distinguishes written settings, verified traffic and repair
 test('proxy and Codex cards share status rendering and use independent switch actions', async () => {
     const source = await readFile(new URL('../electron/renderer.js', import.meta.url), 'utf8');
     const renderer = source.slice(source.indexOf('function renderAccounts('), source.indexOf('async function updateHealth('));
-    const element = (tag, className = '', text = '') => ({ tag, className, text, children: [],
+    const element = (tag, className = '', text = '') => ({ tag, className, text, dataset: {}, children: [],
         append(...children) { this.children.push(...children); }, replaceChildren(...children) { this.children = children; },
         addEventListener(_name, handler) { this.click = handler; } });
     const actions = [];
     const context = vm.createContext({ element, items: [{ name: 'a.json', modifiedAt: 'saved', tokenExpiresAt: 123 }],
         usage: new Map([['a.json', { data: { plan_type: 'plus', rate_limit: {}, rate_limit_reset_credits: {} }, error: 'expired' }]]),
         health: { selected_file: 'a.json', codex_mode: 'auth_file', codex_auth_file: 'b.json' }, busy: false,
+        priorityData: { priority: { enabled: true, disabled: [] }, entries: [{ name: 'a.json', enabled: true }] },
         accountRefreshes: new Map(), networkBusy: false, refreshAccount: name => actions.push(['refresh', name]),
         windowMetric: (...args) => element('metric', '', JSON.stringify(args)), metric: (...args) => element('metric', '', JSON.stringify(args)),
         date: value => String(value), expiryColor: () => '',
@@ -100,17 +101,19 @@ test('proxy and Codex cards share status rendering and use independent switch ac
     const direct = element('main');
     context.renderAccounts(proxy, false);
     context.renderAccounts(direct, true);
-    assert.equal(JSON.stringify(proxy.children[0].children[1]), JSON.stringify(direct.children[0].children[1]));
-    assert.equal(direct.children[0].children[2].text, 'expired');
-    assert.equal(proxy.children[0].children[0].children[1].children[1].disabled, true);
-    assert.equal(direct.children[0].children[0].children[1].children[1].disabled, false);
-    direct.children[0].children[0].children[1].children[1].click();
+    const proxyCard = proxy.children[1].children[1].children[0];
+    const directCard = direct.children[0];
+    assert.equal(JSON.stringify(proxyCard.children[1]), JSON.stringify(directCard.children[1]));
+    assert.equal(directCard.children[2].text, 'expired');
+    assert.equal(proxyCard.children[0].children[1].children[1].disabled, true);
+    assert.equal(directCard.children[0].children[1].children[1].disabled, false);
+    directCard.children[0].children[1].children[1].click();
     assert.deepEqual(actions, [['codex', 'a.json']]);
     context.health.selected_file = 'b.json';
     context.renderAccounts(proxy, false);
-    proxy.children[0].children[0].children[1].children[1].click();
+    proxy.children[1].children[1].children[0].children[0].children[1].children[1].click();
     assert.deepEqual(actions.at(-1), ['proxy', 'a.json']);
-    direct.children[0].children[0].children[1].children[0].click();
+    directCard.children[0].children[1].children[0].click();
     assert.deepEqual(actions.at(-1), ['refresh', 'a.json']);
     context.accountRefreshes.set('a.json', Promise.resolve());
     context.renderAccounts(direct, true);
@@ -122,12 +125,15 @@ test('proxy and Codex cards share status rendering and use independent switch ac
         { status: 'used', expires_at: '2026-10-09T00:00:00Z' }
     ] } } });
     context.renderAccounts(proxy, false);
-    const resetMetric = JSON.parse(proxy.children[0].children[1].children[2].text);
+    const resetMetric = JSON.parse(proxy.children[1].children[1].children[0].children[1].children[2].text);
     assert.equal(resetMetric[1], '3');
     assert.equal(resetMetric[2], '最近过期时间 2026-10-10T00:00:00.000Z');
+    context.priorityData = { priority: { enabled: true, disabled: [] }, entries: [{ name: 'a.json', enabled: false }] };
+    context.renderAccounts(proxy, false);
+    assert.equal(proxy.children[1].children[1].children[0].dataset.name, 'a.json');
     context.usage.set('a.json', { data: { rate_limit_reset_credits: { available_count: 3 } } });
     context.renderAccounts(proxy, false);
-    assert.equal(JSON.parse(proxy.children[0].children[1].children[2].text)[2], '最近过期时间：未提供');
+    assert.equal(JSON.parse(proxy.children[1].children[1].children[0].children[1].children[2].text)[2], '最近过期时间：未提供');
     const html = await readFile(new URL('../electron/index.html', import.meta.url), 'utf8');
     assert.ok(!html.includes('id="codex-account"'));
     assert.ok(!html.includes('恢复 Codex 原配置'));

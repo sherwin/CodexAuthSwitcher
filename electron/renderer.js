@@ -352,8 +352,10 @@ function renderAccounts(target, direct) {
     }
     if (!cards.length) { target.replaceChildren(element('p', 'muted', direct ? '没有可用于 Codex 直连的 ChatGPT 授权文件。' : '此目录没有 JSON 授权文件，请选择授权目录。')); return; }
     if (direct) { target.replaceChildren(...cards); return; }
-    const enabledNames = new Set((priorityData.entries || []).filter(item => item.enabled).map(item => item.name));
-    const order = new Map((priorityData.entries || []).map((item, index) => [item.name, index]));
+    const priorityEntries = Array.isArray(priorityData.entries) ? priorityData.entries : [];
+    const disabledNames = new Set(priorityData.priority?.disabled || priorityEntries.filter(item => item.enabled === false).map(item => item.name));
+    const enabledNames = new Set(cards.filter(card => !disabledNames.has(card.dataset.name)).map(card => card.dataset.name));
+    const order = new Map(priorityEntries.map((item, index) => [item.name, index]));
     cards.sort((a, b) => (order.get(a.dataset.name) ?? 9999) - (order.get(b.dataset.name) ?? 9999));
     const status = element('span', 'muted');
     const heading = element('div', 'list-heading priority-inline-heading');
