@@ -134,6 +134,8 @@ test('Cursor local auth state is injected with a recoverable backup', async () =
         db.close();
         assert.equal(rows.length, Object.keys(localCursorAuthValues()).length);
         assert.ok(rows.some(([key, value]) => key === 'cursorAuth/cachedEmail' && value === 'cursor@ai.com'));
+        assert.ok(rows.some(([key, value]) => key === 'cursorAuth/accessToken' && value === localCursorAuthValues()['cursorAuth/accessToken']));
+        assert.equal(localCursorAuthValues()['cursorAuth/stripeMembershipAuthId'], 'cursor-local-user');
         assert.ok((await readFile(`${file}.codex-auth-switcher-cursor-auth-backup`)).length > 0);
         assert.equal((await restoreCursorAuthState(file)).restored, true);
     } finally { await rm(directory, { recursive: true, force: true }); }
