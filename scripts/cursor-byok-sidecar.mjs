@@ -36,6 +36,25 @@ function waitForPort(port, timeoutMs = 15000) {
     });
 }
 
+async function cursorSettingsPath() {
+    return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Cursor', 'User', 'settings.json');
+}
+
+async function waitForCursorProxy(timeoutMs = 20000) {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+        const file = await cursorSettingsPath();
+        const text = await fs.readFile(file, 'utf8').catch(() => '');
+        const match = text.match(/"http\.proxy"\s*:\s*"http:\\/\\/127\.0\.0\.1:(\d+)"/);
+        if (match) {
+            await waitForPort(Number(match[1]), Math.max(1000, timeoutMs - (Date.now() - started)));
+            return `http://127.0.0.1:${match[1]}`;
+        }
+        await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    throw new Error('cursor-byok 未完成 CA/MITM 接管。请先在 cursor-byok 页面启用 Cursor takeover。');
+}
+
 export function cursorByokExecutable() { return candidates[0]; }
 
 function config(baseUrl, key, model = 'gpt-6.1-sol') {
@@ -66,13 +85,14 @@ export async function startCursorByok(options) {
     if (child && !child.killed) return { executable: resolved, running: true, pid: child.pid };
     child = spawn(resolved, [], { detached: false, windowsHide: true, stdio: 'ignore' });
     child.once('exit', () => { child = null; });
-    try { await waitForPort(18080); await waitForPort(18090); }
+    let proxyUrl;
+    try { proxyUrl = await waitForCursorProxy(); }
     catch (error) {
         if (child && !child.killed) child.kill();
         child = null;
         throw error;
     }
-    return { executable: resolved, running: true, pid: child.pid, proxyUrl: 'http://127.0.0.1:18080' };
+    return { executable: resolved, running: true, pid: child.pid, proxyUrl };
 }
 
 export async function stopCursorByok({ restore = true } = {}) {
