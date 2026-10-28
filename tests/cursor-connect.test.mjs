@@ -6,7 +6,8 @@ import { createRequire } from 'node:module';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createGateway } from '../proxy/server.mjs';
 import { decodeConnectEnvelopes, decodeStreamCppRequest, encodeAvailableModelsResponse, encodeStreamCppResponse,
-    connectEnvelope, extractCursorChatPrompt } from '../proxy/cursor-connect.mjs';
+    connectEnvelope, extractCursorChatPrompt, decodeCursorBidiAppend, decodeCursorRunSseRequest,
+    encodeCursorAgentText, encodeCursorAgentTurnEnded } from '../proxy/cursor-connect.mjs';
 import { candidateRoots, cursorStateDatabase, injectCursorAuthState, localCursorAuthValues,
     patchCursorSource, restoreCursorAuthState } from '../scripts/cursor-local.mjs';
 
@@ -55,6 +56,24 @@ test('prefers the current Cursor Chat message over an older longer history value
 test('ignores encrypted or compressed Cursor chat bytes as a prompt', () => {
     const opaque = Buffer.concat([stringField(1, Buffer.from([0x00, 0xff, 0x92, 0x03, 0x81, 0x7f, 0x10]))]);
     assert.equal(extractCursorChatPrompt(opaque), '');
+});
+
+test('decodes modern Cursor BidiAppend and RunSSE request ids', () => {
+    const agentMessage = stringField(1, 'Reply with exactly: LOCAL_CURSOR_REPLY');
+    const requestId = stringField(1, 'run-123');
+    const append = Buffer.concat([stringField(1, agentMessage.toString('hex')), messageField(2, requestId), bytes(0x18, 1)]);
+    const decoded = decodeCursorBidiAppend(connectEnvelope(append));
+    assert.equal(decoded.requestId, 'run-123');
+    assert.equal(extractCursorChatPrompt(decoded.payload), 'Reply with exactly: LOCAL_CURSOR_REPLY');
+    assert.equal(decodeCursorRunSseRequest(connectEnvelope(messageField(1, requestId))).requestId, 'run-123');
+});
+
+test('encodes Cursor AgentServer text and turn completion frames', () => {
+    const text = encodeCursorAgentText('LOCAL_CURSOR_REPLY');
+    const ended = encodeCursorAgentTurnEnded();
+    assert.ok(text.length > 0);
+    assert.ok(ended.length > 0);
+    assert.equal(decodeConnectEnvelopes(Buffer.concat([connectEnvelope(text), connectEnvelope(ended)])).length, 2);
 });
 
 test('Cursor patch locations and replacements work on Windows and macOS', () => {
@@ -152,4 +171,31 @@ test('local Cursor auth and dashboard probes are answered without upstream login
     assert.equal(config.status, 200);
     assert.equal(config.headers.get('content-type'), 'application/proto');
     assert.deepEqual([...new Uint8Array(await config.arrayBuffer())], [0x08, 0x01, 0x10, 0x01, 0x28, 0x01, 0x30, 0x01]);
+});
+
+test('modern Cursor BidiAppend and RunSSE complete through the local Responses gateway', async t => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'cursor-bidi-gateway-test-'));
+    const auth = path.join(directory, 'auth');
+    await mkdir(auth);
+    await writeFile(path.join(auth, 'local.json'), JSON.stringify({ OPENAI_API_KEY: 'local' }));
+    await writeFile(path.join(directory, 'proxy.json'), JSON.stringify({ key: 'test-key', port: 0, enabled: true,
+        auth_directory: auth, selected_file: 'local.json' }));
+    const gateway = await createGateway(directory, { fetchUpstream: async () =>
+        Response.json({ output: [{ content: [{ type: 'output_text', text: 'LOCAL_CURSOR_REPLY' }] }] }) });
+    t.after(async () => { await gateway.close(); await rm(directory, { recursive: true, force: true }); });
+    const base = `http://127.0.0.1:${gateway.server.address().port}`;
+    const agentMessage = stringField(1, 'Reply with exactly: LOCAL_CURSOR_REPLY');
+    const requestId = stringField(1, 'run-123');
+    const append = Buffer.concat([stringField(1, agentMessage.toString('hex')), messageField(2, requestId), bytes(0x18, 1)]);
+    const headers = { 'Content-Type': 'application/proto' };
+    const accepted = await fetch(`${base}/aiserver.v1.BidiService/BidiAppend`, { method: 'POST', headers,
+        body: connectEnvelope(append) });
+    assert.equal(accepted.status, 200);
+    const stream = await fetch(`${base}/agent.v1.AgentService/RunSSE`, { method: 'POST', headers,
+        body: connectEnvelope(messageField(1, requestId)) });
+    assert.equal(stream.status, 200);
+    const frames = decodeConnectEnvelopes(Buffer.from(await stream.arrayBuffer()));
+    assert.equal(frames.length, 3);
+    assert.ok(frames[0].message.length > 0);
+    assert.equal(frames[2].flags, 2);
 });

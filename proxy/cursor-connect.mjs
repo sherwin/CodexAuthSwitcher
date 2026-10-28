@@ -137,6 +137,34 @@ export function decodeConnectEnvelopes(buffer) {
     return messages;
 }
 
+function unaryPayload(buffer) {
+    if (buffer.length >= 5) {
+        const flags = buffer[0];
+        const length = buffer.readUInt32BE(1);
+        if ((flags & 0x02) === 0 && length === buffer.length - 5) return buffer.subarray(5);
+    }
+    return buffer;
+}
+
+export function decodeCursorBidiAppend(buffer) {
+    const message = unaryPayload(buffer);
+    const data = firstString(message, 1);
+    const requestId = firstString(firstMessage(message, 2) || Buffer.alloc(0), 1);
+    const seqno = firstInt(message, 3);
+    let payload = Buffer.alloc(0);
+    if (data) {
+        try { payload = Buffer.from(data, 'hex'); } catch { payload = Buffer.alloc(0); }
+    }
+    const binary = firstMessage(message, 4);
+    if (!payload.length && binary) payload = binary;
+    return { requestId, seqno, payload };
+}
+
+export function decodeCursorRunSseRequest(buffer) {
+    const message = unaryPayload(buffer);
+    return { requestId: firstString(firstMessage(message, 1) || Buffer.alloc(0), 1) };
+}
+
 export function connectEnvelope(message, flags = 0) {
     const header = Buffer.alloc(5);
     header[0] = flags;
@@ -213,6 +241,20 @@ export function extractCursorChatModel(buffer) {
 
 export function encodeStreamChatResponse(text = '') {
     return fieldString(1, text);
+}
+
+// AgentService/RunSSE uses an AgentServerMessage whose InteractionUpdate
+// contains a TextDeltaUpdate (field 1) followed by TurnEndedUpdate (field 14).
+// Keeping this small wire-compatible response lets Cursor render local BYOK
+// output without depending on generated protobuf code or a Rust runtime.
+export function encodeCursorAgentText(text = '') {
+    const delta = fieldMessage(1, fieldString(1, text));
+    const interaction = fieldMessage(1, delta);
+    return fieldMessage(1, interaction);
+}
+
+export function encodeCursorAgentTurnEnded() {
+    return fieldMessage(1, fieldMessage(14, Buffer.alloc(0)));
 }
 
 // Cursor asks the local backend for a small amount of account metadata before

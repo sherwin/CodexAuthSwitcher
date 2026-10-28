@@ -21,7 +21,8 @@ import { createRequestLog } from './request-log.mjs';
 import { decodeConnectEnvelopes, decodeStreamCppRequest, encodeStreamCppResponse,
     encodeAvailableModelsResponse, connectEnvelope, cursorPrompt, extractCursorChatPrompt, extractCursorChatModel,
     encodeStreamChatResponse, encodeCursorGetEmailResponse, encodeCursorSessionTokenResponse,
-    encodeCursorBoolResponse } from './cursor-connect.mjs';
+    encodeCursorBoolResponse, decodeCursorBidiAppend, decodeCursorRunSseRequest,
+    encodeCursorAgentText, encodeCursorAgentTurnEnded } from './cursor-connect.mjs';
 
 const maxBody = 32 * 1024 * 1024;
 const retryableAuthCodes = new Set(['token_expired', 'invalid_token', 'token_invalidated',
@@ -159,6 +160,10 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
     let configurationGeneration = 0;
     const notified = new Map();
     const recentErrors = new Map();
+    // Modern Cursor keeps request metadata in BidiAppend and consumes the
+    // generated answer through a later RunSSE call with the same request id.
+    // The entry is deliberately short-lived and local to this gateway process.
+    const cursorRuns = new Map();
 
     async function report(error, name) {
         metrics.last_error = { code: error.code || 'upstream_unavailable', account: name || null, at: new Date().toISOString() };
@@ -254,6 +259,10 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 /^\/aiserver\.v1\.AiService\/StreamCpp$/.test(requestedPath);
             const cursorChat = request.method === 'POST' &&
                 /^\/aiserver\.v1\.AiService\/StreamChat(?:Web|TryReallyHard)?$/.test(requestedPath);
+            const cursorBidi = request.method === 'POST' &&
+                requestedPath === '/aiserver.v1.BidiService/BidiAppend';
+            const cursorRunSse = request.method === 'POST' &&
+                requestedPath === '/agent.v1.AgentService/RunSSE';
             const cursorCppConfig = request.method === 'POST' &&
                 requestedPath === '/aiserver.v1.AiService/CppConfig';
             const cursorDashboard = request.method === 'POST' &&
@@ -272,7 +281,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 return;
             }
             if (!authenticated(request, initial.key) && !(isLoopback(request.socket.remoteAddress) &&
-                (cursorConnect || cursorChat || cursorCppConfig || cursorDashboard || cursorAvailableModels || cursorAuthRpc || cursorAuth))) {
+                (cursorConnect || cursorChat || cursorBidi || cursorRunSse || cursorCppConfig || cursorDashboard || cursorAvailableModels || cursorAuthRpc || cursorAuth))) {
                 sendJSON(response, 401, { error: { code: 'local_key_required', message: 'Local gateway authentication required.' } });
                 return;
             }
@@ -356,6 +365,44 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 else if (authMethod === 'CheckSessionToken' || authMethod === 'EmailValid') payload = encodeCursorBoolResponse(true);
                 else if (authMethod === 'GetCustomerId') payload = encodeCursorSessionTokenResponse('local-customer');
                 response.writeHead(200, cursorProtoHeaders(request));
+                response.end(payload);
+                return;
+            }
+            if (cursorBidi) {
+                const append = decodeCursorBidiAppend(await rawBody(request));
+                if (!append.requestId || !append.payload.length)
+                    throw new ProxyError('Cursor BidiAppend 请求缺少 request_id 或消息体。', 'invalid_cursor_request', 400);
+                const prompt = extractCursorChatPrompt(append.payload) ||
+                    'Please answer the latest user message from Cursor Chat.';
+                const model = extractCursorChatModel(append.payload) || 'gpt-6.1-sol';
+                cursorRuns.set(append.requestId, { prompt, model, at: Date.now() });
+                for (const [id, value] of cursorRuns) if (Date.now() - value.at > 10 * 60 * 1000) cursorRuns.delete(id);
+                response.writeHead(200, cursorProtoHeaders(request));
+                response.end(Buffer.alloc(0));
+                return;
+            }
+            if (cursorRunSse) {
+                const run = decodeCursorRunSseRequest(await rawBody(request));
+                const pending = run.requestId && cursorRuns.get(run.requestId);
+                if (!pending) throw new ProxyError('找不到 Cursor BidiAppend 请求。', 'invalid_cursor_request', 400);
+                cursorRuns.delete(run.requestId);
+                const localPort = server.address()?.port;
+                if (!localPort) throw new ProxyError('本地代理尚未监听端口。', 'proxy_not_ready', 503);
+                const localResult = await undiciFetch(`http://127.0.0.1:${localPort}/v1/responses`, {
+                    method: 'POST', headers: { Authorization: `Bearer ${initial.key}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: pending.model, input: [{ role: 'user', content: [{ type: 'input_text', text: pending.prompt }] }], stream: false }),
+                    signal: AbortSignal.timeout(600000) });
+                if (!localResult.ok) {
+                    const message = await localResult.text().catch(() => 'Cursor tab completion failed.');
+                    throw new ProxyError(message.slice(0, 500), `cursor_upstream_${localResult.status}`, localResult.status);
+                }
+                const completion = responseText(await localResult.json());
+                const payload = Buffer.concat([
+                    connectEnvelope(encodeCursorAgentText(completion)),
+                    connectEnvelope(encodeCursorAgentTurnEnded()),
+                    connectEnvelope(Buffer.from('{"error":null}', 'utf8'), 0x02)
+                ]);
+                response.writeHead(200, { ...cursorProtoHeaders(request, { stream: true }), 'Content-Type': 'text/event-stream' });
                 response.end(payload);
                 return;
             }
