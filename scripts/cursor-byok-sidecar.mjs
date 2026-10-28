@@ -3,6 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
+import { injectCursorAuthState, restoreCursorAuthState } from './cursor-local.mjs';
 
 // cursor-byok v1.x stores its managed CA/config under v3. Keep the path
 // aligned with the released sidecar so its service actually reads our model
@@ -82,6 +83,10 @@ export async function startCursorByok(options) {
     const resolved = await Promise.any(candidates.map(async file => { await fs.access(file); return file; })).catch(() => null);
     if (!resolved) throw new Error('未找到 cursor-byok。请设置 CURSOR_BYOK_EXECUTABLE 或安装 cursor-byok。');
     await prepareCursorByok(options);
+    // cursor-byok supplies the local HTTPS/protocol adapter, while Cursor's
+    // workbench still reads its signed-in state from state.vscdb. Keep that
+    // state deterministic so takeover works without a real Cursor account.
+    await injectCursorAuthState();
     if (child && !child.killed) return { executable: resolved, running: true, pid: child.pid };
     child = spawn(resolved, [], { detached: false, windowsHide: true, stdio: 'ignore' });
     child.once('exit', () => { child = null; });
@@ -99,5 +104,6 @@ export async function stopCursorByok({ restore = true } = {}) {
     if (child && !child.killed) child.kill();
     child = null;
     if (restore && await fs.stat(backupFile).catch(() => null)) await fs.copyFile(backupFile, configFile);
+    if (restore) await restoreCursorAuthState();
     return { running: false, restored: restore };
 }
