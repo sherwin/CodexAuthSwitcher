@@ -53,6 +53,12 @@ test('prefers the current Cursor Chat message over an older longer history value
     assert.equal(extractCursorChatPrompt(Buffer.concat([old, current])), '你好');
 });
 
+test('ignores Cursor request UUID leaves when extracting the current message', () => {
+    const current = stringField(1, '请回答当前问题');
+    const requestId = stringField(1, 'f6fb8f58-2258-4eee-b3ba-05340c2c3194');
+    assert.equal(extractCursorChatPrompt(Buffer.concat([current, requestId])), '请回答当前问题');
+});
+
 test('ignores encrypted or compressed Cursor chat bytes as a prompt', () => {
     const opaque = Buffer.concat([stringField(1, Buffer.from([0x00, 0xff, 0x92, 0x03, 0x81, 0x7f, 0x10]))]);
     assert.equal(extractCursorChatPrompt(opaque), '');

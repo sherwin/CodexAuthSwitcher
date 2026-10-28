@@ -186,6 +186,7 @@ export function cursorPrompt(request) {
 // readable leaves and use the longest recent value as a provider prompt.
 export function extractCursorChatPrompt(buffer) {
     const values = [];
+    const transportUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     const readable = value => {
         if (!value || value.includes('\ufffd')) return '';
         const chars = [...value];
@@ -208,7 +209,10 @@ export function extractCursorChatPrompt(buffer) {
             const text = raw.replace(/j\$[0-9a-f-]{20,}/gi, '')
                 .replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ')
                 .replace(/^[^\p{L}\p{N}]+/u, '').trim();
-            if (text && /[\p{L}\p{N}]/u.test(text)) values.push(text);
+            // Cursor appends request/session UUIDs as protobuf leaves. They
+            // are transport metadata, never the user's message. Filtering
+            // them here prevents the provider from answering the UUID itself.
+            if (text && !transportUuid.test(text) && /[\p{L}\p{N}]/u.test(text)) values.push(text);
             visit(item.value, depth + 1);
         }
     };
