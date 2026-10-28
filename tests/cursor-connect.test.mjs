@@ -46,6 +46,17 @@ test('strips Cursor protobuf metadata from Chat prompts', () => {
     assert.equal(extractCursorChatPrompt(prompt), 'Reply with exactly: LOCAL_CURSOR_REPLY');
 });
 
+test('prefers the current Cursor Chat message over an older longer history value', () => {
+    const old = stringField(1, 'Reply with exactly: LOCAL_CURSOR_REPLY');
+    const current = stringField(1, '你好');
+    assert.equal(extractCursorChatPrompt(Buffer.concat([old, current])), '你好');
+});
+
+test('ignores encrypted or compressed Cursor chat bytes as a prompt', () => {
+    const opaque = Buffer.concat([stringField(1, Buffer.from([0x00, 0xff, 0x92, 0x03, 0x81, 0x7f, 0x10]))]);
+    assert.equal(extractCursorChatPrompt(opaque), '');
+});
+
 test('Cursor patch locations and replacements work on Windows and macOS', () => {
     assert.match(candidateRoots('win32', { LOCALAPPDATA: 'C:\\Users\\demo' })[0], /cursor[\\/]resources[\\/]app$/i);
     assert.match(candidateRoots('darwin', { HOME: '/Users/demo' })[0], /Cursor\.app/);

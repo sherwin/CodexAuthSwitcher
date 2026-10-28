@@ -24,7 +24,8 @@ import { decodeConnectEnvelopes, decodeStreamCppRequest, encodeStreamCppResponse
     encodeCursorBoolResponse } from './cursor-connect.mjs';
 
 const maxBody = 32 * 1024 * 1024;
-const retryableAuthCodes = new Set(['token_expired', 'invalid_token', 'token_invalidated']);
+const retryableAuthCodes = new Set(['token_expired', 'invalid_token', 'token_invalidated',
+    'invalid_grant', 'refresh_token_reused', 'refresh_token_expired', 'refresh_token_invalidated']);
 const maxCapacityRetries = 5;
 function retryableStreamError(error) { return /network|disconnect|socket|body|fetch|transport/i.test(String(error?.message || error)); }
 async function transientResponse(response) {
@@ -404,7 +405,21 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 // surface as an opaque 400 to the chat UI.
                 const input = envelopes.length === 1 && envelopes[0].flags === 0
                     ? envelopes[0].message : body;
-                const prompt = extractCursorChatPrompt(input) || 'Reply with exactly: LOCAL_CURSOR_REPLY';
+                const extractedPrompt = extractCursorChatPrompt(input);
+                const plainInput = input.toString('utf8').replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').trim();
+                const plainChars = [...plainInput];
+                const plainPrintable = plainChars.filter(char => {
+                    const code = char.codePointAt(0);
+                    return code >= 0x20 && code !== 0x7f;
+                }).length / Math.max(1, plainChars.length);
+                // Newer Cursor builds encrypt/compress the chat protobuf. Do
+                // not forward decoded binary as a fake prompt; it produces
+                // confusing answers and can make the client report a failed
+                // connection. The local provider still returns a valid chat
+                // response while the opaque payload is unsupported.
+                const prompt = extractedPrompt || (plainPrintable >= 0.8 && !plainInput.includes('\ufffd')
+                    ? plainInput : 'Please answer the latest user message from Cursor Chat.');
+                if (!prompt) throw new ProxyError('无法从 Cursor Chat 请求中提取用户消息。', 'invalid_cursor_request', 400);
                 const model = extractCursorChatModel(input) || 'gpt-6.1-sol';
                 const localPort = server.address()?.port;
                 if (!localPort) throw new ProxyError('本地代理尚未监听端口。', 'proxy_not_ready', 503);
@@ -630,24 +645,44 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             shouldRecord = route[1] !== 'models';
             name = state.selected_file;
             let file = accountPath(state, name);
-            let record = await credentials.get(file);
             const queue = (await priorityEntries(state)).filter(item => item.enabled).map(item => item.name);
             let queueIndex = queue.indexOf(name);
             const triedAccounts = new Set([name]);
+            let record;
             async function switchQueuedAccount() {
                 if (!normalizePrioritySettings(state.priority).enabled || !queue.length) return false;
-                let next;
                 for (let count = 0; count < queue.length; count++) {
                     queueIndex = (queueIndex + 1) % queue.length;
-                    if (!triedAccounts.has(queue[queueIndex])) { next = queue[queueIndex]; break; }
+                    const next = queue[queueIndex];
+                    if (triedAccounts.has(next)) continue;
+                    triedAccounts.add(next);
+                    try {
+                        const nextFile = next === '__custom__' ? file : accountPath(state, next);
+                        const nextRecord = next === '__custom__'
+                            ? { provider: 'custom', base_url: state.custom_base_url,
+                                api_key: (await readJSON(path.join(codexHome, 'auth.json'))).OPENAI_API_KEY }
+                            : await credentials.get(nextFile);
+                        name = next;
+                        file = nextFile;
+                        record = nextRecord;
+                        if (name !== '__custom__') await locked(path.join(directory, 'state.mutex'), async () => { const latest = await readJSON(statePath); latest.selected_file = name; await writeJSON(statePath, latest); });
+                        return true;
+                    } catch (error) {
+                        attemptErrors.push({ attempt: attemptCount, account: next,
+                            status: error.status || 401, code: error.code || 'account_unavailable',
+                            message: error.message || 'Account unavailable.' });
+                    }
                 }
-                if (!next) return false;
-                triedAccounts.add(next);
-                name = next;
-                if (name === '__custom__') { const customAuth = await readJSON(path.join(codexHome, 'auth.json')); record = { provider: 'custom', base_url: state.custom_base_url, api_key: customAuth.OPENAI_API_KEY }; }
-                else { file = accountPath(state, name); record = await credentials.get(file); }
-                if (name !== '__custom__') await locked(path.join(directory, 'state.mutex'), async () => { const latest = await readJSON(statePath); latest.selected_file = name; await writeJSON(statePath, latest); });
-                return true;
+                return false;
+            }
+            try {
+                record = await credentials.get(file);
+            } catch (initialError) {
+                attemptErrors.push({ attempt: 0, account: name,
+                    status: initialError.status || 401,
+                    code: initialError.code || 'token_refresh_failed',
+                    message: initialError.message || 'Token refresh failed.' });
+                if (!(await switchQueuedAccount())) throw initialError;
             }
             let body;
             let stream = false;
@@ -733,7 +768,25 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 if (result.status !== 401 || attempt !== 0 || record.OPENAI_API_KEY || isDeepSeek(record)) break;
                 const error = await responseError(result);
                 if (!retryableAuthCodes.has(error.code)) throw error;
-                record = await credentials.get(file, { force: true, failedToken: record.tokens.access_token });
+                try {
+                    record = await credentials.get(file, { force: true, failedToken: record.tokens.access_token });
+                } catch (refreshError) {
+                    // A revoked or reused refresh token must not strand the
+                    // request on one account when priority switching is on.
+                    // Treat the failed renewal as an account failure and try
+                    // the next eligible account before exposing 401.
+                    attemptErrors.push({ attempt: attemptCount, account: name,
+                        status: refreshError.status || 401,
+                        code: refreshError.code || 'token_refresh_failed',
+                        message: refreshError.message || 'Token refresh failed.' });
+                    if (await switchQueuedAccount()) {
+                        statisticsAccount = usageAccount(name, record);
+                        capacityRetries = 0;
+                        attempt = -1;
+                        continue;
+                    }
+                    throw refreshError;
+                }
             }
             if (route[1] === 'models' && result.ok) {
                 let catalog = await result.json();

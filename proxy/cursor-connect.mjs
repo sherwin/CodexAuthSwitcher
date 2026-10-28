@@ -158,13 +158,23 @@ export function cursorPrompt(request) {
 // readable leaves and use the longest recent value as a provider prompt.
 export function extractCursorChatPrompt(buffer) {
     const values = [];
+    const readable = value => {
+        if (!value || value.includes('\ufffd')) return '';
+        const chars = [...value];
+        const printable = chars.filter(char => {
+            const code = char.codePointAt(0);
+            return code >= 0x20 && code !== 0x7f;
+        }).length;
+        return printable / Math.max(1, chars.length) >= 0.8 ? value : '';
+    };
     const visit = (message, depth = 0) => {
         if (depth > 8) return;
         let items;
         try { items = fields(message); } catch { return; }
         for (const item of items) {
             if (item.wireType !== 2 || !Buffer.isBuffer(item.value)) continue;
-            const raw = item.value.toString('utf8');
+            const raw = readable(item.value.toString('utf8'));
+            if (!raw) { visit(item.value, depth + 1); continue; }
             // Cursor appends protobuf field bytes and a request UUID to the
             // human prompt.  Never forward that transport metadata upstream.
             const text = raw.replace(/j\$[0-9a-f-]{20,}/gi, '')
@@ -175,7 +185,13 @@ export function extractCursorChatPrompt(buffer) {
         }
     };
     visit(buffer);
-    return values.filter(value => value.length <= 20000).sort((a, b) => b.length - a.length)[0] || '';
+    const candidates = values.filter(value => value.length <= 20000);
+    // StreamChat carries the whole conversation.  The previous implementation
+    // selected the longest string globally, which could pick an old test prompt
+    // over the current short user message. Keep a bounded recent window and
+    // choose the richest value inside that window.
+    const recent = candidates.slice(-24);
+    return recent.at(-1) || candidates.at(-1) || '';
 }
 
 export function extractCursorChatModel(buffer) {
