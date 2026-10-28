@@ -4,7 +4,10 @@ import os from 'node:os';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
 
-const configDir = path.join(os.homedir(), '.cursor-local-assistant-v2');
+// cursor-byok v1.x stores its managed CA/config under v3. Keep the path
+// aligned with the released sidecar so its service actually reads our model
+// adapter instead of silently starting with the old v2 profile.
+const configDir = path.join(os.homedir(), '.cursor-byok-v3');
 const configFile = path.join(configDir, 'config.yaml');
 const backupFile = `${configFile}.codex-auth-switcher-backup`;
 const candidates = [
