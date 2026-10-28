@@ -14,7 +14,7 @@ const localAccountEmail = 'cursor@ai.com';
 // Keep the same synthetic session shape as cursor-byok's local account
 // service. Its HTTPS proxy uses the subject to decide whether auth/profile
 // requests can be answered locally instead of going to Cursor's servers.
-const localAuthToken = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjdXJzb3ItbG9jYWwtdXNlciIsImVtYWlsIjoiY3Vyc29yQGFpLmNvbSIsInR5cGUiOiJzZXNzaW9uIiwiaXNzIjoiY3Vyc29yLWNsaWVudCIsInNjb3BlIjoib3BlbmlkIHByb2ZpbGUgZW1haWwiLCJleHAiOjQwNzA5MDg4MDB9.cursor-local-user';
+const localAuthToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImN1cnNvckBhaS5jb20iLCJleHAiOjQwNzA5MDg4MDAsImlzcyI6ImN1cnNvci1jbGllbnQiLCJzY29wZSI6Im9wZW5pZCBwcm9maWxlIGVtYWlsIiwic3ViIjoiY3Vyc29yLWxvY2FsLXVzZXIiLCJ0eXBlIjoic2Vzc2lvbiJ9.cursor-local-user';
 
 export function cursorStateDatabase(platform = process.platform, env = process.env, home = os.homedir()) {
     if (platform === 'win32') return path.join(env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'Cursor', 'User', 'globalStorage', 'state.vscdb');
@@ -28,7 +28,7 @@ export function localCursorAuthValues() {
         'cursorAuth/cachedEmail': localAccountEmail,
         'cursorAuth/cachedSignUpType': 'Google',
         'cursorAuth/refreshToken': localAuthToken,
-        'cursorAuth/stripeMembershipAuthId': 'codex-auth-switcher-local-user',
+        'cursorAuth/stripeMembershipAuthId': 'cursor-local-user',
         'cursorAuth/stripeMembershipType': 'ultra',
         'cursorAuth/stripeSubscriptionStatus': 'active'
     };
