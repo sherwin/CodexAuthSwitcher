@@ -45,7 +45,7 @@ async function waitForCursorProxy(timeoutMs = 20000) {
     while (Date.now() - started < timeoutMs) {
         const file = await cursorSettingsPath();
         const text = await fs.readFile(file, 'utf8').catch(() => '');
-        const match = text.match(/"http\.proxy"\s*:\s*"http:\\/\\/127\.0\.0\.1:(\d+)"/);
+        const match = text.match(/"http\.proxy"\s*:\s*"http:\/\/127\.0\.0\.1:(\d+)"/);
         if (match) {
             await waitForPort(Number(match[1]), Math.max(1000, timeoutMs - (Date.now() - started)));
             return `http://127.0.0.1:${match[1]}`;
