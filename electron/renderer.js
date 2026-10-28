@@ -554,8 +554,8 @@ async function configureCursor(action) {
     try {
         const result = await api.cursorConfigure(action);
         status.textContent = action === 'enable'
-            ? `已启用本地补全代理：${result.baseUrl}。请重新打开 Cursor。`
-            : '已恢复 Cursor 官方补全。请重新打开 Cursor。';
+            ? `已启动 cursor-byok 接管：${result.baseUrl || '本地 MITM'}。如首次使用请在 cursor-byok 完成本地 CA 信任，然后重新打开 Cursor。`
+            : '已停止 cursor-byok 接管并恢复 Cursor 原有设置。';
     } catch (error) { status.textContent = `操作失败：${error.message}`; }
     finally { enable.disabled = disable.disabled = false; }
 }

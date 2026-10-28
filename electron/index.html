@@ -79,9 +79,9 @@
   <section id="cursor-page" role="tabpanel" aria-labelledby="tab-cursor" hidden>
     <section class="card codex-panel" aria-labelledby="cursor-title">
       <div class="list-heading"><h2 id="cursor-title">Cursor 代码联想与 Tab</h2></div>
-      <p class="notice">将 Cursor 原生代码联想和 Tab 补全转到本机代理，复用当前出口账号的额度与自动切换。</p>
-      <p class="muted">启用前请完全退出 Cursor。工具会备份补全地址，并写入可恢复的本地会话状态，让 Cursor 无需登录即可进入本地补全流程；不会使用真实 Cursor 账号。启用后请重新打开 Cursor。</p>
-      <div class="actions"><button id="cursor-enable" class="primary">启用本地补全代理</button><button id="cursor-disable">恢复 Cursor 官方补全</button></div>
+      <p class="notice">通过 cursor-byok 的本地 CA、HTTPS MITM 和协议适配接管 Cursor Chat 与 Tab，复用当前出口账号的额度与自动切换。</p>
+      <p class="muted">首次启用会启动 cursor-byok 并初始化本地 CA；系统可能弹出证书信任授权。启用前请完全退出 Cursor，启用后重新打开 Cursor。关闭时会恢复 Cursor 原有代理设置。</p>
+      <div class="actions"><button id="cursor-enable" class="primary">初始化并接管 Cursor</button><button id="cursor-disable">停止接管并恢复</button></div>
       <p id="cursor-status" class="muted" role="status"></p>
     </section>
   </section>

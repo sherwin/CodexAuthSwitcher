@@ -78,13 +78,14 @@ else {
         ipcMain.handle('cursor-configure', async (_event, action) => {
             if (networkBusy) throw new Error('网络设置正在更新。');
             if (!['enable', 'disable'].includes(action)) throw new Error('Unsupported Cursor action.');
-            const cursor = await import('../scripts/cursor-local.mjs');
-            const target = await cursor.locateCursorTarget();
-            const result = target.type === 'asar' ? await cursor.patchAsar(target.file, action, `http://127.0.0.1:${state.port}`)
-                : action === 'enable' ? await cursor.enableCursor(target.file, `http://127.0.0.1:${state.port}`)
-                    : await cursor.disableCursor(target.file);
-            const auth = action === 'enable' ? await cursor.injectCursorAuthState() : await cursor.restoreCursorAuthState();
-            return { ...result, auth };
+            const byok = await import('../scripts/cursor-byok-sidecar.mjs');
+            const currentState = await storage.readJSON(statePath);
+            if (action === 'enable') {
+                const result = await byok.startCursorByok({ baseUrl: `http://127.0.0.1:${currentState.port}`,
+                    key: currentState.key, model: 'gpt-6.1-sol' });
+                return { ...result, takeover: 'cursor-byok', baseUrl: result.proxyUrl };
+            }
+            return byok.stopCursorByok({ restore: true });
         });
         ipcMain.handle('choose-directory', async () => {
             if (networkBusy) throw new Error('网络设置正在更新。');
@@ -157,7 +158,11 @@ app.on('before-quit', event => {
     event.preventDefault();
     // Repeated quit events share shutdown; finish pending statistics writes before exiting.
     if (shutdownPromise) return;
-    shutdownPromise = Promise.resolve().then(() => gateway?.close()).catch(async () => {
+    shutdownPromise = Promise.resolve().then(async () => {
+        await gateway?.close();
+        const byok = await import('../scripts/cursor-byok-sidecar.mjs');
+        await byok.stopCursorByok({ restore: true });
+    }).catch(async () => {
         await gateway?.notifyError?.({ code: 'proxy_shutdown_failed' });
     }).finally(() => {
         quitting = true;

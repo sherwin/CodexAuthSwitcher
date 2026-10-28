@@ -39,6 +39,7 @@
       "electron/**/*",
       "proxy/**/*",
       "scripts/cursor-local.mjs",
+      "scripts/cursor-byok-sidecar.mjs",
       "package.json"
     ],
     "mac": {
