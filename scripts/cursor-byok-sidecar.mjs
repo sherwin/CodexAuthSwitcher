@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
+import net from 'node:net';
 
 const configDir = path.join(os.homedir(), '.cursor-local-assistant-v2');
 const configFile = path.join(configDir, 'config.yaml');
@@ -15,6 +16,22 @@ const candidates = [
     '/Applications/cursor-byok.app/Contents/MacOS/cursor-byok'
 ].filter(Boolean);
 let child;
+
+function waitForPort(port, timeoutMs = 15000) {
+    return new Promise((resolve, reject) => {
+        const started = Date.now();
+        const probe = () => {
+            const socket = net.createConnection({ host: '127.0.0.1', port });
+            socket.once('connect', () => { socket.destroy(); resolve(true); });
+            socket.once('error', () => {
+                socket.destroy();
+                if (Date.now() - started >= timeoutMs) reject(new Error(`cursor-byok 未启动本地端口 ${port}。请先在 cursor-byok 界面完成 CA 初始化。`));
+                else setTimeout(probe, 250);
+            });
+        };
+        probe();
+    });
+}
 
 export function cursorByokExecutable() { return candidates[0]; }
 
@@ -46,6 +63,12 @@ export async function startCursorByok(options) {
     if (child && !child.killed) return { executable: resolved, running: true, pid: child.pid };
     child = spawn(resolved, [], { detached: false, windowsHide: true, stdio: 'ignore' });
     child.once('exit', () => { child = null; });
+    try { await waitForPort(18080); await waitForPort(18090); }
+    catch (error) {
+        if (child && !child.killed) child.kill();
+        child = null;
+        throw error;
+    }
     return { executable: resolved, running: true, pid: child.pid, proxyUrl: 'http://127.0.0.1:18080' };
 }
 
