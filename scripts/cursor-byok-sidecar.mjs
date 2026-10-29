@@ -3,7 +3,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import http from 'node:http';
-import https from 'node:https';
+import net from 'node:net';
+import tls from 'node:tls';
 import { injectCursorAuthState, restoreCursorAuthState } from './cursor-local.mjs';
 import selfsigned from 'selfsigned';
 
@@ -55,14 +56,51 @@ async function backupSettings() { await fs.mkdir(path.dirname(settingsFile), { r
 async function applySettings(proxyUrl) { const current = await fs.readFile(settingsFile, 'utf8').then(JSON.parse).catch(() => ({})); await fs.writeFile(settingsFile, JSON.stringify({ ...current, 'http.proxy': proxyUrl, 'http.proxySupport': 'on', 'http.experimental.systemCertificatesV2': true }, null, 2)); }
 
 function startMitm(baseUrl) {
-    const tlsServer = https.createServer({ cert: readFileSync(certFile), key: readFileSync(keyFile) }, async (request, response) => {
-        const chunks = []; for await (const chunk of request) chunks.push(chunk);
-        const upstream = await fetch(`${baseUrl}${request.url}`, { method: request.method, headers: request.headers, body: chunks.length ? Buffer.concat(chunks) : undefined });
-        response.writeHead(upstream.status, Object.fromEntries(upstream.headers));
-        response.end(Buffer.from(await upstream.arrayBuffer()));
+    const secureContext = tls.createSecureContext({ cert: readFileSync(certFile), key: readFileSync(keyFile) });
+    const listener = net.createServer(socket => {
+        let header = Buffer.alloc(0);
+        const onConnectHeader = () => {
+            const end = header.indexOf('\r\n\r\n');
+            if (end < 0) return;
+            socket.removeListener('data', onConnectData);
+            socket.pause();
+            const remainder = header.subarray(end + 4);
+            socket.write('HTTP/1.1 200 Connection Established\r\n\r\n', () => {
+                // CONNECT headers and the TLS ClientHello can arrive in one
+                // TCP packet. Put the bytes after the proxy header back before
+                // handing the socket to Node's TLS state machine.
+                if (remainder.length) socket.unshift(remainder);
+                const secure = new tls.TLSSocket(socket, { isServer: true, secureContext });
+                let requestBuffer = Buffer.alloc(0);
+                secure.on('secure', () => secure.resume());
+                secure.on('data', chunk => {
+                    requestBuffer = Buffer.concat([requestBuffer, chunk]);
+                    const marker = requestBuffer.indexOf('\r\n\r\n');
+                    if (marker < 0) return;
+                    const head = requestBuffer.subarray(0, marker).toString('latin1');
+                    const [first, ...lines] = head.split('\r\n');
+                    const match = /^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(\S+)/.exec(first);
+                    if (!match) return secure.destroy();
+                    const headers = Object.fromEntries(lines.map(line => line.split(/:\s*/, 2)).filter(parts => parts.length === 2).map(([key, value]) => [key.toLowerCase(), value]));
+                    const length = Number(headers['content-length'] || 0);
+                    const bodyStart = marker + 4;
+                    if (requestBuffer.length < bodyStart + length) return;
+                    const body = requestBuffer.subarray(bodyStart, bodyStart + length);
+                    fetch(`${baseUrl}${match[2]}`, { method: match[1], headers, body: body.length ? body : undefined }).then(async upstream => {
+                        const payload = Buffer.from(await upstream.arrayBuffer());
+                        const responseHeaders = [`HTTP/1.1 ${upstream.status} ${upstream.statusText || 'OK'}`, `Content-Length: ${payload.length}`, 'Connection: close', ...[...upstream.headers].filter(([key]) => !['content-length', 'connection', 'transfer-encoding'].includes(key)).map(([key, value]) => `${key}: ${value}`)];
+                        secure.write(`${responseHeaders.join('\r\n')}\r\n\r\n`); secure.end(payload);
+                    }).catch(() => secure.destroy());
+                    secure.removeAllListeners('data');
+                });
+                secure.on('error', () => secure.destroy());
+                socket.resume();
+            });
+        };
+        const onConnectData = chunk => { header = Buffer.concat([header, chunk]); onConnectHeader(); };
+        socket.on('data', onConnectData);
+        socket.on('error', () => socket.destroy());
     });
-    const listener = http.createServer();
-    listener.on('connect', (_request, socket) => { socket.pause(); socket.write('HTTP/1.1 200 Connection Established\r\n\r\n', () => { tlsServer.emit('connection', socket); socket.resume(); }); });
     listener.listen(0, '127.0.0.1');
     return new Promise((resolve, reject) => { listener.once('listening', () => { mitmServer = listener; resolve(`http://127.0.0.1:${listener.address().port}`); }); listener.once('error', reject); });
 }
