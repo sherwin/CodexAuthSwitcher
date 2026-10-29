@@ -18,7 +18,8 @@
     "prepack": "npm run build:icons",
     "predist": "npm run build:icons",
     "pack": "electron-builder --dir",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win --x64"
   },
   "dependencies": {
     "@iarna/toml": "2.2.5",
