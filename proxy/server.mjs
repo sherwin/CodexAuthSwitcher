@@ -407,11 +407,18 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 return;
             }
             if (cursorConnect) {
-                const envelopes = decodeConnectEnvelopes(await rawBody(request));
-                if (envelopes.length !== 1 || envelopes[0].flags !== 0)
-                    throw new ProxyError('Cursor Connect request envelope is unsupported.', 'invalid_cursor_request', 400);
-                const input = envelopes[0].message;
-                const cursor = decodeStreamCppRequest(input);
+                const body = await rawBody(request);
+                let envelopes = [];
+                try { envelopes = decodeConnectEnvelopes(body); } catch { /* raw protobuf is also valid */ }
+                // Cursor versions differ here: some send one Connect frame,
+                // while newer builds send raw protobuf or include metadata
+                // frames before the request. Always select the first data
+                // frame and fall back to the raw body instead of returning a
+                // connection-level 400 to the editor.
+                const input = envelopes.find(item => item.flags === 0)?.message || body;
+                let cursor;
+                try { cursor = decodeStreamCppRequest(input); }
+                catch { cursor = { model: '', path: '', contents: '', line: 0, column: 0 }; }
                 const prompt = cursorPrompt(cursor);
                 const localPort = server.address()?.port;
                 if (!localPort) throw new ProxyError('本地代理尚未监听端口。', 'proxy_not_ready', 503);

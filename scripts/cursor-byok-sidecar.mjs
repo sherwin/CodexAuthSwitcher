@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process';
 import net from 'node:net';
 import { injectCursorAuthState, restoreCursorAuthState } from './cursor-local.mjs';
 
+//吧 
 // cursor-byok v1.x stores its managed CA/config under v3. Keep the path
 // aligned with the released sidecar so its service actually reads our model
 // adapter instead of silently starting with the old v2 profile.
@@ -100,6 +101,34 @@ async function ensureCaTrust() {
 }
 
 function controlUrlFromPort(port) { return `http://127.0.0.1:${port}/__byok-api__`; }
+
+async function cursorByokControl(controlUrl, pathName, options = {}) {
+    const response = await fetch(`${controlUrl.replace(/\/+$/, '')}${pathName}`, {
+        ...options,
+        headers: { accept: 'application/json', ...(options.body ? { 'content-type': 'application/json' } : {}), ...(options.headers || {}) }
+    });
+    if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        throw new Error(`cursor-byok 控制请求失败：${response.status}${detail ? ` ${detail.slice(0, 200)}` : ''}`);
+    }
+    return response.json().catch(() => ({}));
+}
+
+export async function initializeCursorByokCa(controlUrl) {
+    return cursorByokControl(controlUrl, '/api/harness/cursor/ca/initialize', { method: 'POST' });
+}
+
+export async function setCursorByokEnabled(controlUrl, enabled) {
+    return cursorByokControl(controlUrl, '/api/harness/cursor/enabled', {
+        method: 'PUT', body: JSON.stringify({ enabled: Boolean(enabled) })
+    });
+}
+
+export async function configureTabMode(controlUrl, { mode = 'custom', address = '' } = {}) {
+    return cursorByokControl(controlUrl, '/api/settings/tab', {
+        method: 'PUT', body: JSON.stringify({ mode, address })
+    });
+}
 
 async function discoverControlUrl(timeoutMs = 20000) {
     const configured = process.env.CURSOR_BYOK_CONTROL_URL?.trim();
@@ -205,22 +234,23 @@ export async function startCursorByok(options) {
         ownedChild = true;
         child.once('exit', () => { child = null; });
     }
-    let proxyUrl;
     let controlUrl;
     let ca;
-    try { proxyUrl = await waitForCursorProxy(); }
-    catch (error) {
-        if (ownedChild && child && !child.killed) child.kill();
-        child = null;
-        throw error;
-    }
     try {
         controlUrl = await discoverControlUrl();
-        const model = await configureModel(controlUrl, options);
+        // Use cursor-byok's supported takeover lifecycle instead of guessing
+        // proxy settings. The CA is initialized first, then trusted locally,
+        // and only then does the sidecar enable the HTTPS MITM.
+        await initializeCursorByokCa(controlUrl);
         ca = await ensureCaTrust();
+        await setCursorByokEnabled(controlUrl, true);
+        const proxyUrl = await waitForCursorProxy();
+        const model = await configureModel(controlUrl, options);
+        const tab = await configureTabMode(controlUrl, { mode: 'custom', address: options.baseUrl });
         return { executable: resolved, running: true, pid: child?.pid ?? null, proxyUrl, controlUrl,
-            modelHash: model?.model_hash, ca };
+            modelHash: model?.model_hash, tabMode: tab?.mode || 'custom', tabAddress: options.baseUrl, ca };
     } catch (error) {
+        if (controlUrl) await setCursorByokEnabled(controlUrl, false).catch(() => {});
         if (ownedChild && child && !child.killed) child.kill();
         child = null;
         throw error;
@@ -228,6 +258,8 @@ export async function startCursorByok(options) {
 }
 
 export async function stopCursorByok({ restore = true } = {}) {
+    const controlUrl = await discoverControlUrl(1000).catch(() => null);
+    if (controlUrl) await setCursorByokEnabled(controlUrl, false).catch(() => {});
     if (child && !child.killed) child.kill();
     child = null;
     if (restore && await fs.stat(backupFile).catch(() => null)) await fs.copyFile(backupFile, configFile);

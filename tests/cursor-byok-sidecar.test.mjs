@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { configureModel } from '../scripts/cursor-byok-sidecar.mjs';
+import { configureModel, configureTabMode, initializeCursorByokCa, setCursorByokEnabled } from '../scripts/cursor-byok-sidecar.mjs';
 
 function server(handler) {
     const instance = http.createServer(handler);
@@ -52,4 +52,27 @@ test('does not duplicate an existing cursor-byok model', async () => {
     } finally {
         instance.close();
     }
+});
+
+test('uses cursor-byok harness lifecycle and custom Tab routing', async () => {
+    const calls = [];
+    const instance = await server(async (request, response) => {
+        calls.push({ method: request.method, url: request.url, body: request.method === 'PUT' ? JSON.parse(await new Promise(resolve => {
+            const chunks = []; request.on('data', chunk => chunks.push(chunk)); request.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+        })) : null });
+        response.setHeader('content-type', 'application/json');
+        response.end(JSON.stringify({ enabled: true, mode: 'custom' }));
+    });
+    try {
+        const base = `http://127.0.0.1:${instance.address().port}/__byok-api__`;
+        await initializeCursorByokCa(base);
+        await setCursorByokEnabled(base, true);
+        await configureTabMode(base, { mode: 'custom', address: 'http://127.0.0.1:18888' });
+        assert.deepEqual(calls.map(item => `${item.method} ${item.url}`), [
+            'POST /__byok-api__/api/harness/cursor/ca/initialize',
+            'PUT /__byok-api__/api/harness/cursor/enabled',
+            'PUT /__byok-api__/api/settings/tab'
+        ]);
+        assert.deepEqual(calls[2].body, { mode: 'custom', address: 'http://127.0.0.1:18888' });
+    } finally { instance.close(); }
 });

@@ -36,6 +36,28 @@ test('round trips Connect envelopes and emits a StreamCpp response', () => {
     assert.ok(envelopes[0].message.length > 0);
 });
 
+test('accepts raw and metadata-framed StreamCpp requests', async t => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'cursor-streamcpp-gateway-test-'));
+    const auth = path.join(directory, 'auth');
+    await mkdir(auth);
+    await writeFile(path.join(auth, 'local.json'), JSON.stringify({ OPENAI_API_KEY: 'local' }));
+    await writeFile(path.join(directory, 'proxy.json'), JSON.stringify({ key: 'test-key', port: 0, enabled: true,
+        auth_directory: auth, selected_file: 'local.json' }));
+    const gateway = await createGateway(directory, { fetchUpstream: async () =>
+        Response.json({ output: [{ content: [{ type: 'output_text', text: 'LOCAL_CURSOR_REPLY' }] }] }) });
+    t.after(async () => { await gateway.close(); await rm(directory, { recursive: true, force: true }); });
+    const base = `http://127.0.0.1:${gateway.server.address().port}`;
+    const file = Buffer.concat([stringField(1, 'src/app.ts'), stringField(2, 'const answer = 42;'), messageField(3, Buffer.concat([bytes(8, 3), bytes(16, 7)]))]);
+    const request = Buffer.concat([messageField(1, file), stringField(3, 'main')]);
+    for (const body of [request, Buffer.concat([connectEnvelope(Buffer.from('metadata')), connectEnvelope(request)])]) {
+        const response = await fetch(`${base}/aiserver.v1.AiService/StreamCpp`, { method: 'POST',
+            headers: { 'Content-Type': 'application/proto' }, body });
+        assert.equal(response.status, 200);
+        const frames = decodeConnectEnvelopes(Buffer.from(await response.arrayBuffer()));
+        assert.equal(frames.length, 2);
+    }
+});
+
 test('encodes a Cursor model picker response with configured model names', () => {
     const payload = encodeAvailableModelsResponse(['local-model', 'gpt-4o-mini']);
     assert.match(payload.toString('utf8'), /local-model/);
