@@ -1,4 +1,5 @@
 const api = window.authSwitcher;
+const tr = text => typeof window !== 'undefined' && window.i18n?.t ? window.i18n.t(text) : text;
 const accounts = document.querySelector('#accounts');
 const usage = new Map();
 const accountRefreshes = new Map();
@@ -22,26 +23,27 @@ let savingDeepSeek = false;
 let requestLogs = [], requestLogsPage = 1, requestLogsTotalPages = 1, requestLogsTotal = 0, requestLogsFilter = 'all';
 let priorityData = { priority: { enabled: true }, entries: [] };
 
-function renderCapacityRetrySettings(settings = health?.capacity_retry || { enabled: true, min_seconds: 1, max_seconds: 5 }) {
+function renderCapacityRetrySettings(settings = health?.capacity_retry || { enabled: true, min_seconds: 1, max_seconds: 5, max_retries: 5 }) {
     document.querySelector('#capacity-retry-enabled').checked = settings.enabled !== false;
     document.querySelector('#capacity-retry-min').value = settings.min_seconds;
     document.querySelector('#capacity-retry-max').value = settings.max_seconds;
+    document.querySelector('#capacity-retry-max-retries').value = settings.max_retries;
 }
 async function savePriorityBoard(enabledZone, disabledZone, status) {
     const order = [...enabledZone.querySelectorAll('.account-card'), ...disabledZone.querySelectorAll('.account-card')].map(row => row.dataset.name);
     const disabled = [...disabledZone.querySelectorAll('.account-card')].map(row => row.dataset.name);
-    try { status.textContent = '保存中…'; const result = await call('priority', { priority: { enabled: order.length > disabled.length, order, disabled } }); priorityData.priority = result.priority; priorityData.entries = order.map(name => ({ name, enabled: !disabled.includes(name) })); status.textContent = '已保存'; setTimeout(() => { if (status.textContent === '已保存') status.textContent = ''; }, 1800); }
-    catch (error) { status.textContent = `保存失败：${error.message}`; }
+    try { status.textContent = tr('保存中…'); const result = await call('priority', { priority: { enabled: order.length > disabled.length, order, disabled } }); priorityData.priority = result.priority; priorityData.entries = order.map(name => ({ name, enabled: !disabled.includes(name) })); status.textContent = tr('已保存'); setTimeout(() => { if (status.textContent === tr('已保存')) status.textContent = ''; }, 1800); }
+    catch (error) { status.textContent = tr(`保存失败：${error.message}`); }
 }
 function renderRequestLogs() {
     const target = document.querySelector('#request-logs-list'); target.replaceChildren();
-    document.querySelector('#request-logs-page-label').textContent = `第 ${requestLogsPage} / ${requestLogsTotalPages} 页 · 共 ${requestLogsTotal} 条`;
+    document.querySelector('#request-logs-page-label').textContent = tr(`第 ${requestLogsPage} / ${requestLogsTotalPages} 页 · 共 ${requestLogsTotal} 条`);
     document.querySelector('#request-logs-prev').disabled = requestLogsPage <= 1; document.querySelector('#request-logs-next').disabled = requestLogsPage >= requestLogsTotalPages;
     for (const item of requestLogs) { const button = element('button', `request-log-row ${item.success ? 'success' : 'failure'}`); button.type = 'button'; button.append(element('strong', '', `${item.method} ${item.path} · ${item.model || '模型未知'}`), element('span', '', `${item.startedAt} · HTTP ${item.status || '—'} · ${item.durationMs} ms · 尝试 ${item.attemptCount || 1}${item.errorCode ? ` · ${item.errorCode}` : ''}`)); button.onclick = () => showRequestLog(item.id); target.append(button); }
     if (!requestLogs.length) target.append(element('p', 'muted', '暂无请求记录。'));
 }
 async function refreshRequestLogs(page = requestLogsPage) { const target = document.querySelector('#request-logs-list'); target.replaceChildren(element('p', 'request-logs-loading', '正在读取请求记录…')); try { const result = await call('requestLogs', { page, filter: requestLogsFilter }); requestLogs = result.logs || []; requestLogsPage = result.page || 1; requestLogsTotalPages = result.totalPages || 1; requestLogsTotal = result.total || 0; renderRequestLogs(); } catch (error) { target.replaceChildren(element('p', 'card-status error', error.message)); } }
-async function showRequestLog(id) { const detail = document.querySelector('#request-log-detail'); detail.setAttribute('aria-busy', 'true'); document.querySelector('#request-log-detail-title').textContent = '读取记录…'; document.querySelector('#request-log-request-body').textContent = '读取中…'; document.querySelector('#request-log-response-body').textContent = '读取中…'; try { const item = await call('requestLog', { id }); let events = item.errorEvents; try { events = JSON.parse(item.errorEvents || '[]'); } catch {} document.querySelector('#request-log-detail-title').textContent = `记录 #${item.id} · ${item.method} ${item.path}`; document.querySelector('#request-log-detail-meta').textContent = `${item.startedAt} · 模型 ${item.model || '未知'} · HTTP ${item.status || '—'} · ${item.durationMs} ms · 尝试 ${item.attemptCount || 1} · ${item.success ? '成功' : '失败'}${item.errorCode ? ` · ${item.errorCode}` : ''}${item.errorMessage ? ` · ${item.errorMessage}` : ''} · 错误事件 ${events.length}`; document.querySelector('#request-log-request-body').textContent = item.requestBody || '(空)'; document.querySelector('#request-log-response-body').textContent = (events.length ? `尝试错误：\n${JSON.stringify(events, null, 2)}\n\n` : '') + (item.responseBody || '(空)'); } catch (error) { document.querySelector('#request-log-detail-meta').textContent = error.message; } finally { detail.removeAttribute('aria-busy'); } }
+async function showRequestLog(id) { const detail = document.querySelector('#request-log-detail'); detail.setAttribute('aria-busy', 'true'); document.querySelector('#request-log-detail-title').textContent = tr('读取记录…'); document.querySelector('#request-log-request-body').textContent = tr('读取中…'); document.querySelector('#request-log-response-body').textContent = tr('读取中…'); try { const item = await call('requestLog', { id }); let events = item.errorEvents; try { events = JSON.parse(item.errorEvents || '[]'); } catch {} document.querySelector('#request-log-detail-title').textContent = tr(`记录 #${item.id} · ${item.method} ${item.path}`); document.querySelector('#request-log-detail-meta').textContent = tr(`${item.startedAt} · 模型 ${item.model || '未知'} · HTTP ${item.status || '—'} · ${item.durationMs} ms · 尝试 ${item.attemptCount || 1} · ${item.success ? '成功' : '失败'}${item.errorCode ? ` · ${item.errorCode}` : ''}${item.errorMessage ? ` · ${item.errorMessage}` : ''} · 错误事件 ${events.length}`); document.querySelector('#request-log-request-body').textContent = item.requestBody || '(空)'; document.querySelector('#request-log-response-body').textContent = (events.length ? `尝试错误：\n${JSON.stringify(events, null, 2)}\n\n` : '') + (item.responseBody || '(空)'); } catch (error) { document.querySelector('#request-log-detail-meta').textContent = tr(error.message); } finally { detail.removeAttribute('aria-busy'); } }
 
 function openDeepSeek(item) {
     const form = document.querySelector('#deepseek-form');
@@ -109,7 +111,7 @@ function selectWorkspace(tab) {
     document.querySelector('#open-statistics').hidden = tab !== 'proxy';
 }
 
-const number = value => Number(value || 0).toLocaleString('zh-CN');
+const number = value => Number(value || 0).toLocaleString(typeof window !== 'undefined' && window.i18n?.language === 'zh' ? 'zh-CN' : 'en-US');
 function tokenNumber(value) {
     const count = Number(value || 0);
     if (!Number.isFinite(count) || count < 0) return '0';
@@ -137,7 +139,7 @@ function renderStatistics() {
     for (const button of document.querySelectorAll('#statistics-period button')) button.setAttribute('aria-pressed', String(button.dataset.period === period));
     const data = statisticsData.periods?.[period] || statisticsData;
     if (!data || !Array.isArray(data.accounts) || !data.totals) {
-        document.querySelector('#statistics-status').textContent = '统计数据格式不完整，请刷新代理后重试。';
+        document.querySelector('#statistics-status').textContent = tr('统计数据格式不完整，请刷新代理后重试。');
         return;
     }
     const files = statisticsData.files || [];
@@ -160,8 +162,8 @@ function renderStatistics() {
     const filter = available.get(selected);
     const rows = selected === 'all' ? [...current.values()] : [{ ...(current.get(filter.id) || filter), name: filter.name }];
     const totals = selected === 'all' ? data.totals : rows[0];
-    document.querySelector('#statistics-title').textContent = `${{ day: '今日', week: '本周', month: '本月' }[period]} Token 用量`;
-    document.querySelector('#statistics-day').textContent = `${data.start === data.end ? data.start : data.start + ' 至 ' + data.end} · 北京时间 · 周一开始 / 自然月 · 数据保存在本机`;
+    document.querySelector('#statistics-title').textContent = tr(`${{ day: '今日', week: '本周', month: '本月' }[period]} Token 用量`);
+    document.querySelector('#statistics-day').textContent = tr(`${data.start === data.end ? data.start : data.start + ' 至 ' + data.end} · 北京时间 · 周一开始 / 自然月 · 数据保存在本机`);
     const summary = document.querySelector('#statistics-summary');
     summary.replaceChildren(metric('总 Token', tokenNumber(totals?.total_tokens), '已收到上游用量', 'good'),
         metric('输入 Token', tokenNumber(totals?.input_tokens), `其中缓存 ${tokenNumber(totals?.cached_tokens)}`),
@@ -171,11 +173,11 @@ function renderStatistics() {
         summary.children[index].title = `${number(count)} Token`;
     });
     document.querySelector('#statistics-coverage').textContent = totals?.unknown_requests
-        ? `${number(totals.unknown_requests)} 次请求未收到完整用量（中断、失败或上游未提供），总 Token 可能低于实际消耗。`
-        : '无未知用量请求。未经过本地代理的调用不在统计范围内。';
+        ? tr(`${number(totals.unknown_requests)} 次请求未收到完整用量（中断、失败或上游未提供），总 Token 可能低于实际消耗。`)
+        : tr('无未知用量请求。未经过本地代理的调用不在统计范围内。');
     const chart = document.querySelector('#statistics-hours');
     chart.replaceChildren();
-    document.querySelector('#statistics-chart-title').textContent = period === 'day' ? '每小时 Token' : '每日 Token';
+    document.querySelector('#statistics-chart-title').textContent = tr(period === 'day' ? '每小时 Token' : '每日 Token');
     const hours = totals?.buckets || data.buckets.map(() => 0);
     const max = Math.max(1, ...hours);
     chart.setAttribute('aria-label', hours.map((count, index) => `${data.buckets[index]} ${period === 'day' ? '点' : ''} ${number(count)} Token`).join('，'));
@@ -206,14 +208,14 @@ async function refreshStatistics() {
     try {
         statisticsData = await call('statistics');
         renderStatistics();
-        document.querySelector('#statistics-status').textContent = '统计已更新，每 10 秒自动刷新。';
-    } catch (error) { document.querySelector('#statistics-status').textContent = `统计读取失败：${error.message}。显示数据可能不是最新。`; }
+        document.querySelector('#statistics-status').textContent = tr('统计已更新，每 10 秒自动刷新。');
+    } catch (error) { document.querySelector('#statistics-status').textContent = tr(`统计读取失败：${error.message}。显示数据可能不是最新。`); }
     finally { statisticsLoading = false; button.disabled = false; }
 }
 
 async function updateCurl() {
     if (health?.lan_enabled && !health.lan_addresses?.length) {
-        document.querySelector('#curl-preview').textContent = '未发现局域网 IPv4 地址，请检查网络连接。';
+        document.querySelector('#curl-preview').textContent = tr('未发现局域网 IPv4 地址，请检查网络连接。');
         document.querySelector('#copy-curl').disabled = true;
         return;
     }
@@ -231,6 +233,7 @@ function message(text, error = false) {
     notification.hidden = false;
     clearTimeout(notificationTimer);
     notificationTimer = setTimeout(() => { notification.hidden = true; }, error ? 10000 : 5000);
+    window.i18n?.apply();
 }
 
 async function call(action, input) {
@@ -242,7 +245,7 @@ async function call(action, input) {
 function date(value, time = true) {
     if (!value) return '时间不可用';
     const parsed = new Date(typeof value === 'number' ? value * 1000 : value);
-    return Number.isFinite(parsed.getTime()) ? parsed.toLocaleString('zh-CN', time ?
+    return Number.isFinite(parsed.getTime()) ? parsed.toLocaleString(typeof window !== 'undefined' && window.i18n?.language === 'zh' ? 'zh-CN' : 'en-US', time ?
         { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false } :
         { year: 'numeric', month: '2-digit', day: '2-digit' }) : '时间不可用';
 }
@@ -262,7 +265,7 @@ function resetColor(value) {
 function element(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
-    if (text !== undefined) node.textContent = text;
+    if (text !== undefined) node.textContent = window.i18n?.t(text) || text;
     return node;
 }
 
@@ -286,6 +289,7 @@ function render() {
     renderAccounts(accounts, false);
     renderAccounts(document.querySelector('#codex-accounts'), true);
     window.scrollTo({ left: scrollX, top: scrollY, behavior: 'instant' });
+    window.i18n?.apply();
 }
 
 function renderAccounts(target, direct) {
@@ -353,8 +357,10 @@ function renderAccounts(target, direct) {
     }
     if (!cards.length) { target.replaceChildren(element('p', 'muted', direct ? '没有可用于 Codex 直连的 ChatGPT 授权文件。' : '此目录没有 JSON 授权文件，请选择授权目录。')); return; }
     if (direct) { target.replaceChildren(...cards); return; }
-    const enabledNames = new Set((priorityData.entries || []).filter(item => item.enabled).map(item => item.name));
-    const order = new Map((priorityData.entries || []).map((item, index) => [item.name, index]));
+    const priorityEntries = Array.isArray(priorityData.entries) ? priorityData.entries : [];
+    const disabledNames = new Set(priorityData.priority?.disabled || priorityEntries.filter(item => item.enabled === false).map(item => item.name));
+    const enabledNames = new Set(cards.filter(card => !disabledNames.has(card.dataset.name)).map(card => card.dataset.name));
+    const order = new Map(priorityEntries.map((item, index) => [item.name, index]));
     cards.sort((a, b) => (order.get(a.dataset.name) ?? 9999) - (order.get(b.dataset.name) ?? 9999));
     const status = element('span', 'muted');
     const heading = element('div', 'list-heading priority-inline-heading');
@@ -421,18 +427,18 @@ async function updateHealth() {
     try {
         health = await call('status');
         document.querySelector('#dot').classList.add('running');
-        document.querySelector('#gateway-status').textContent = '本地代理运行中';
+        document.querySelector('#gateway-status').textContent = tr('本地代理运行中');
         const displayHost = health.lan_enabled ? health.lan_addresses?.[0] : '127.0.0.1';
-        document.querySelector('#gateway-detail').textContent = `${displayHost ? `${displayHost}:${health.port}` : '未发现局域网 IP'} · 出口：${health.selected_file || '未选择'}`;
+        document.querySelector('#gateway-detail').textContent = tr(`${displayHost ? `${displayHost}:${health.port}` : '未发现局域网 IP'} · 出口：${health.selected_file || '未选择'}`);
         const connection = keyConnectionPresentation(health.codex_connection);
         document.querySelector('#configure').disabled = busy;
-        document.querySelector('#configure').textContent = '应用 Key 模式';
+        document.querySelector('#configure').textContent = tr('应用 Key 模式');
         document.querySelector('#setup-note').className = 'notice' + (health.codex_mode === 'key' ? ' ' + connection.tone : '');
         document.querySelector('#setup-note').textContent = health.codex_mode === 'key'
-            ? connection.text
-            : health.codex_mode === 'custom' ? `Codex 当前配置：局域网 Base URL · ${health.custom_base_url || '未记录地址'}。更新地址或 Key 后需重启 Codex。`
-            : health.codex_mode === 'auth_file' ? `Codex 当前配置：授权文件直连 · ${health.codex_auth_file || '未记录账号'}。更新授权后需重启 Codex；代理仍独立运行。`
-                : '尚未由工具配置 Codex。可选择 Key 接入代理，或授权文件直连；两者都不会关闭本地代理。配置后需重启 Codex。';
+            ? tr(connection.text)
+            : health.codex_mode === 'custom' ? tr(`Codex 当前配置：局域网 Base URL · ${health.custom_base_url || '未记录地址'}。更新地址或 Key 后需重启 Codex。`)
+            : health.codex_mode === 'auth_file' ? tr(`Codex 当前配置：授权文件直连 · ${health.codex_auth_file || '未记录账号'}。更新授权后需重启 Codex；代理仍独立运行。`)
+                : tr('尚未由工具配置 Codex。可选择 Key 接入代理，或授权文件直连；两者都不会关闭本地代理。配置后需重启 Codex。');
         if (observedCodexMode !== health.codex_mode) {
             observedCodexMode = health.codex_mode;
             codexMode = health.codex_mode;
@@ -444,9 +450,9 @@ async function updateHealth() {
         }
         const addresses = health.lan_enabled ? health.lan_addresses : [];
         document.querySelector('#network-addresses').textContent = health.lan_enabled
-            ? addresses.length ? '局域网 Base URL：' + addresses.map(ip => `http://${ip}:${health.port}/v1`).join(' · ')
-                : '局域网已开启，但未发现私有 IPv4 地址，请检查网络连接。'
-            : `仅本机访问：http://127.0.0.1:${health.port}/v1`;
+            ? addresses.length ? tr('局域网 Base URL：') + addresses.map(ip => `http://${ip}:${health.port}/v1`).join(' · ')
+                : tr('局域网已开启，但未发现私有 IPv4 地址，请检查网络连接。')
+            : tr(`仅本机访问：http://127.0.0.1:${health.port}/v1`);
         const signature = JSON.stringify([health.port, health.lan_enabled, addresses, health.selected_provider]);
         if (addressSignature !== signature) {
             const target = document.querySelector('#curl-target');
@@ -467,13 +473,13 @@ async function updateHealth() {
             await updateCurl();
             curlMode = signature;
         }
-        document.querySelector('#gateway-status').title = health.in_flight ? `${health.in_flight} 个请求进行中` : '代理空闲';
+        document.querySelector('#gateway-status').title = tr(health.in_flight ? `${health.in_flight} 个请求进行中` : '代理空闲');
         const errorSignature = health.last_error ? JSON.stringify([health.last_error.code, health.last_error.account, health.last_error.at]) : null;
         if (errorSignature && errorSignature !== lastHealthError) message(`代理错误：${health.last_error.code} · ${health.last_error.account || ''}`, true);
         lastHealthError = errorSignature;
     } catch (error) {
         document.querySelector('#dot').classList.remove('running');
-        document.querySelector('#gateway-status').textContent = '本地代理不可用';
+        document.querySelector('#gateway-status').textContent = tr('本地代理不可用');
         const errorSignature = `connection:${error.message}`;
         if (lastHealthError !== errorSignature) message(error.message, true);
         lastHealthError = errorSignature;
@@ -583,13 +589,13 @@ document.querySelector('#configure').addEventListener('click', async () => {
     finally { busy = false; await updateHealth(); render(); }
 });
 document.querySelector('#open-settings').addEventListener('click', async () => { const result = await call('settings'); renderCapacityRetrySettings(result.capacity_retry); document.querySelector('#settings-dialog').showModal(); });
-document.querySelector('#save-settings').addEventListener('click', async event => { event.preventDefault(); const status = document.querySelector('#settings-status'); try { const min = Number(document.querySelector('#capacity-retry-min').value), max = Number(document.querySelector('#capacity-retry-max').value); const result = await call('settings', { capacity_retry: { enabled: document.querySelector('#capacity-retry-enabled').checked, min_seconds: min, max_seconds: max } }); renderCapacityRetrySettings(result.capacity_retry); document.querySelector('#settings-dialog').close(); message('重试设置已保存。'); } catch (error) { status.textContent = error.message; } });
+document.querySelector('#save-settings').addEventListener('click', async event => { event.preventDefault(); const status = document.querySelector('#settings-status'); try { const min = Number(document.querySelector('#capacity-retry-min').value), max = Number(document.querySelector('#capacity-retry-max').value), maxRetries = Number(document.querySelector('#capacity-retry-max-retries').value); const result = await call('settings', { capacity_retry: { enabled: document.querySelector('#capacity-retry-enabled').checked, min_seconds: min, max_seconds: max, max_retries: maxRetries } }); renderCapacityRetrySettings(result.capacity_retry); document.querySelector('#settings-dialog').close(); message('重试设置已保存。'); } catch (error) { status.textContent = error.message; } });
 document.querySelector('#open-request-logs').addEventListener('click', () => { document.querySelector('#home-page').hidden = true; document.querySelector('#request-logs-page').hidden = false; refreshRequestLogs(1); });
 document.querySelector('#back-from-logs').addEventListener('click', () => { document.querySelector('#request-logs-page').hidden = true; document.querySelector('#home-page').hidden = false; });
 document.querySelector('#refresh-request-logs').addEventListener('click', () => refreshRequestLogs());
 document.querySelector('#request-log-filter').addEventListener('change', event => { requestLogsFilter = event.target.value; requestLogsPage = 1; refreshRequestLogs(1); });
 document.querySelector('#request-logs-prev').addEventListener('click', () => refreshRequestLogs(requestLogsPage - 1)); document.querySelector('#request-logs-next').addEventListener('click', () => refreshRequestLogs(requestLogsPage + 1)); document.querySelector('#request-logs-go').addEventListener('click', () => refreshRequestLogs(Number(document.querySelector('#request-logs-page-input').value) || 1));
-document.querySelector('#close-request-log-detail').addEventListener('click', () => { document.querySelector('#request-log-detail-meta').textContent = '从左侧选择一条记录。'; document.querySelector('#request-log-request-body').textContent = '(未选择记录)'; document.querySelector('#request-log-response-body').textContent = '(未选择记录)'; });
+document.querySelector('#close-request-log-detail').addEventListener('click', () => { document.querySelector('#request-log-detail-meta').textContent = tr('从左侧选择一条记录。'); document.querySelector('#request-log-request-body').textContent = tr('(未选择记录)'); document.querySelector('#request-log-response-body').textContent = tr('(未选择记录)'); });
 async function switchCodexAccount(name) {
     busy = true;
     render();
@@ -613,11 +619,11 @@ document.querySelector('#copy-curl').addEventListener('click', async () => {
     button.disabled = true;
     try { status.textContent = await api.curlCommand('copy', document.querySelector('#curl-target').value,
         document.querySelector('#curl-stream').value === 'true') ? '已复制，可粘贴到对应电脑终端。' : '已取消复制。'; }
-    catch { status.textContent = '复制失败，请确认本地代理运行、所选地址可用。'; }
+    catch { status.textContent = tr('复制失败，请确认本地代理运行、所选地址可用。'); }
     finally { button.disabled = false; }
 });
 for (const id of ['curl-target', 'curl-stream']) document.querySelector('#' + id).addEventListener('change', () => updateCurl().catch(() => {
-    document.querySelector('#curl-preview').textContent = '地址已变化，请刷新后重试。';
+    document.querySelector('#curl-preview').textContent = tr('地址已变化，请刷新后重试。');
 }));
 for (const id of ['lan-enabled', 'proxy-port']) document.querySelector('#' + id).addEventListener('input', () => { networkDirty = true; });
 document.querySelector('#apply-network').addEventListener('click', async () => {
@@ -629,8 +635,8 @@ document.querySelector('#apply-network').addEventListener('click', async () => {
         const result = await api.networkSettings({ lan_enabled: document.querySelector('#lan-enabled').checked,
             port: Number(document.querySelector('#proxy-port').value) });
         networkDirty = false;
-        status.textContent = result.canceled ? '已取消。' : result.configChanged
-            ? '已应用并更新 Codex Base URL，请重启 Codex。' : '网络设置已应用。';
+        status.textContent = tr(result.canceled ? '已取消。' : result.configChanged
+            ? '已应用并更新 Codex Base URL，请重启 Codex。' : '网络设置已应用。');
     } catch (error) { status.textContent = error.message; }
     finally { networkBusy = false; button.disabled = false; await updateHealth(); }
 });

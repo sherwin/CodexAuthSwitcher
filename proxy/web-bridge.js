@@ -1,5 +1,13 @@
-/* Adapt the unchanged desktop renderer to the authenticated Surface backend. */
+/* Adapt the shared desktop renderer to the authenticated remote backend. */
 (() => {
+    const tr = text => window.i18n?.t(text) || text;
+    function redirectToLogin(message) {
+        if (sessionStorage.getItem('codex-auth-login-redirect')) return false;
+        sessionStorage.setItem('codex-auth-login-redirect', '1');
+        if (message) sessionStorage.setItem('codex-auth-login-message', message);
+        location.replace('/');
+        return true;
+    }
     const routes = { status: ['status'], accounts: ['accounts'], statistics: ['statistics'], requestLogs: ['requestLogs', true], requestLog: ['requestLogs', true], settings: ['settings', true], priority: ['priority', true], custom: ['custom', true],
         usage: ['usage', true], select: ['select', true], deepseek: ['deepseek', true], configure: ['configure', true],
         authFile: ['auth-file', true], unconfigure: ['unconfigure', true] };
@@ -8,7 +16,7 @@
             headers: { 'Content-Type': 'application/json', 'X-Switcher-Web': '1' },
             body: data === undefined ? undefined : JSON.stringify(data) });
         const result = await response.json();
-        if (response.status === 401) { location.replace('/'); throw Error('登录已过期，请重新登录。'); }
+        if (response.status === 401) { redirectToLogin('登录已过期，请重新登录。'); throw Error('登录已过期，请重新登录。'); }
         if (!response.ok) throw Error(result.error || '操作失败');
         return result;
     }
@@ -24,8 +32,9 @@
     window.authSwitcher = Object.freeze({
         async call(action, input) {
             const route = routes[action];
-            if (!route) return { ok: false, error: '不支持的操作' };
-            try { return { ok: true, result: await request(route[0], route[1] ? input || {} : undefined) }; }
+            if (!route) return { ok: false, error: tr('不支持的操作') };
+            const readSettings = (action === 'priority' || action === 'settings') && input === undefined;
+            try { return { ok: true, result: await request(route[0], route[1] && !readSettings ? input || {} : undefined) }; }
             catch (error) { return { ok: false, error: error.message }; }
         },
         async chooseDirectory() {
@@ -36,7 +45,7 @@
             return action === 'copy' ? copyText(command) : command;
         },
         async networkSettings(input) {
-            if (input.lan_enabled && !confirm('允许局域网电脑使用 Surface 的代理？持有 Key 的电脑可以消耗当前账号额度。HTTP 不加密，请仅在可信局域网开启。')) return { canceled: true };
+            if (input.lan_enabled && !confirm('Allow LAN computers to use this Linux host proxy? Anyone with the key can consume the current account quota. HTTP is unencrypted; use only on a trusted LAN.')) return { canceled: true };
             return request('network', input);
         },
     });
@@ -45,13 +54,13 @@
         if (directoryOpen) return false;
         directoryOpen = true;
         const dialog = document.createElement('dialog'); dialog.className = 'web-directory';
-        dialog.setAttribute('aria-label', '选择 Surface 授权目录');
-        dialog.innerHTML = '<h2>选择 Surface 授权目录</h2><p class="muted">这里显示 Surface 上的文件夹。选择后代理出口将清空，Codex 现有授权保持不变。</p><form class="web-path"><input aria-label="Surface 目录路径" required><button>前往</button></form><button class="web-parent">上级目录</button><div class="web-folders"></div><p class="muted web-directory-status" role="status"></p><div class="actions"><button class="web-cancel">取消</button><button class="primary web-select">使用此目录</button></div>';
+        dialog.setAttribute('aria-label', tr('Choose remote auth directory'));
+        dialog.innerHTML = `<h2>${tr('Choose remote auth directory')}</h2><p class="muted">${tr('Browse folders on this Linux host. Selecting a directory clears the proxy account selection and keeps existing Codex auth unchanged.')}</p><form class="web-path"><input aria-label="${tr('Remote directory path')}" required><button>${tr('Open')}</button></form><button class="web-parent">${tr('Parent')}</button><div class="web-folders"></div><p class="muted web-directory-status" role="status"></p><div class="actions"><button class="web-cancel">${tr('Cancel')}</button><button class="primary web-select">${tr('Use this directory')}</button></div>`;
         const field = dialog.querySelector('input'), list = dialog.querySelector('.web-folders');
         const info = dialog.querySelector('.web-directory-status'), select = dialog.querySelector('.web-select');
         let current, loaded = false;
         async function load(target = '') {
-            loaded = false; select.disabled = true; info.textContent = '读取目录…';
+            loaded = false; select.disabled = true; info.textContent = tr('读取目录…');
             try {
                 current = await request('directories?path=' + encodeURIComponent(target));
                 field.value = current.path; list.replaceChildren();
@@ -59,7 +68,7 @@
                     const button = document.createElement('button'); button.textContent = entry.name;
                     button.onclick = () => load(entry.path); list.append(button);
                 }
-                info.textContent = current.directories.length ? '选择文件夹进入，或使用当前目录。' : '此目录没有可见子文件夹。';
+                info.textContent = tr(current.directories.length ? '选择文件夹进入，或使用当前目录。' : '此目录没有可见子文件夹。');
                 loaded = true; select.disabled = false;
             } catch (error) { info.textContent = error.message; }
         }
@@ -79,13 +88,13 @@
     }
     const actions = document.querySelector('header .actions');
     const upload = document.createElement('button'), logout = document.createElement('button');
-    upload.textContent = '导入授权文件'; logout.textContent = '退出登录';
+    upload.textContent = tr('导入授权文件'); logout.textContent = tr('退出登录');
     const input = document.createElement('input'); input.type = 'file'; input.accept = '.json'; input.multiple = true; input.hidden = true;
     const status = document.createElement('p'); status.className = 'muted web-status'; status.setAttribute('role', 'status');
     actions.append(upload, logout, input); document.querySelector('header').after(status);
-    document.querySelector('header .eyebrow').textContent = 'SURFACE / LAN ACCOUNT GATEWAY';
-    document.querySelector('header .muted').textContent = '远程管理 Surface 上的本地代理与 Codex 配置。';
-    for (const id of ['directory', 'codex-directory']) document.getElementById(id).textContent = '更改 Surface 授权目录';
+    document.querySelector('header .eyebrow').textContent = 'LINUX / LAN ACCOUNT GATEWAY';
+    document.querySelector('header .muted').textContent = 'Manage the local proxy and Codex configuration on this Linux host.';
+    for (const id of ['directory', 'codex-directory']) document.getElementById(id).textContent = 'Change remote auth directory';
     upload.onclick = () => input.click();
     input.onchange = async () => {
         upload.disabled = true; let imported = 0;
@@ -94,12 +103,13 @@
                 if (file.size > 1024 * 1024) throw Error('文件超过 1 MiB：' + file.name);
                 await request('import', { name: file.name, auth: await file.text() }); imported++;
             }
-            status.textContent = `已导入 ${imported} 个账号。`; document.getElementById('refresh').click();
-        } catch (error) { status.textContent = `已导入 ${imported} 个账号；${error.message}`; if (imported) document.getElementById('refresh').click(); }
+            status.textContent = tr(`已导入 ${imported} 个账号。`); document.getElementById('refresh').click();
+        } catch (error) { status.textContent = tr(`已导入 ${imported} 个账号；`) + error.message; if (imported) document.getElementById('refresh').click(); }
         finally { upload.disabled = false; input.value = ''; }
     };
     logout.onclick = async () => {
         try { await request('logout', {}); location.replace('/'); }
-        catch (error) { status.textContent = error.message; }
+        catch (error) { status.textContent = tr(error.message); }
     };
+    window.i18n?.apply();
 })();

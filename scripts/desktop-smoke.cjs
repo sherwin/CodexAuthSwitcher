@@ -33,7 +33,7 @@ app.on('browser-window-created', (_event, window) => {
                 if (document.querySelector('#request-logs-page').hidden || !document.querySelector('#home-page').hidden)
                     throw Error('Request logs page did not become visible');
                 await new Promise(resolve => setTimeout(resolve, 50));
-                if (!document.querySelector('#request-logs-list').textContent.includes('暂无请求记录'))
+                if (!/暂无请求记录|No request logs\./.test(document.querySelector('#request-logs-list').textContent))
                     throw Error('Request logs page did not render its empty state');
                 document.querySelector('#back-from-logs').click();
                 if (document.querySelector('#home-page').hidden || !document.querySelector('#request-logs-page').hidden)
@@ -65,11 +65,11 @@ app.on('browser-window-created', (_event, window) => {
                 const account = list.result.accounts.find(item => item.name === 'DeepSeek smoke.json');
                 if (!account || account.base_url !== 'https://example.com/v1') throw Error('Desktop did not save DeepSeek fields');
                 if (JSON.stringify(list).includes('offline-deepseek-key')) throw Error('Saved key leaked to renderer');
-                if (!document.querySelector('#accounts').textContent.includes('编辑配置')) throw Error('DeepSeek card missing');
+                if (!/编辑配置|Edit config/.test(document.querySelector('#accounts').textContent)) throw Error('DeepSeek card missing');
                 const zones = document.querySelectorAll('#accounts .priority-dropzone');
                 if (zones.length !== 2 || zones[1].children.length) throw Error('Expected an empty excluded account group');
                 const placeholder = getComputedStyle(zones[1], '::before');
-                if (!placeholder.content.includes('退出自动切换') || zones[1].getBoundingClientRect().height < 96)
+                if (!/退出自动切换|exclude them/.test(placeholder.content) || zones[1].getBoundingClientRect().height < 96)
                     throw Error('Empty account group needs a visible drop placeholder');
                 if (document.querySelector('#codex-accounts').textContent.includes('DeepSeek smoke')) throw Error('DeepSeek listed for Codex auth-file');
                 document.querySelector('#accounts .actions button').click();

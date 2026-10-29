@@ -1,321 +1,222 @@
 # Codex Auth Switcher
 
-Electron desktop account picker with an independently runnable Node.js Responses proxy.
-The previous Swift application is retained as a legacy version; new development uses Electron and Node.js.
+## 中文
 
-## Platform compatibility
+Codex Auth Switcher 是一个跨平台 Electron 应用，同时提供本地 OpenAI 兼容代理。它可以管理 ChatGPT 授权文件、DeepSeek/API Key 账号，并让 Codex、curl 或局域网客户端使用选定的代理出口。
 
-The Electron desktop application and the standalone proxy support **macOS and
-Linux and Windows**. The authenticated web manager is an additional entry point and does not
-replace the desktop UI or preload. `npm start` still starts Electron;
-`node proxy/web.mjs` starts the web manager explicitly. Merely installing or
-launching the desktop app does not start the web listener or service management.
+支持 macOS、Windows、Linux。界面默认英文，可切换简体中文。
 
-Platform-specific paths retain the original behavior: on macOS the state lives
-under `~/Library/Application Support/CodexAuthSwitcher` and the default account
-directory is `~/Code/Codex-auth`; on Linux and Windows they are `~/.codex-auth-switcher` and
-`~/Codex-auth`. `CODEX_HOME` and the existing directory overrides still apply.
+### 快速开始
 
-Only the optional **Surface Feishu restart integration** is Linux/systemd-specific.
-On macOS and Windows it stays unavailable even if its environment flag was set;
-it never runs `systemctl`, reads Linux cgroups or applies Codex configuration.
-The desktop's native directory/clipboard/tray controls remain independent.
-
-`.github/workflows/compatibility.yml` runs the regression suite and native
-`npm run test:desktop` and `npm run pack` on Windows, macOS and Ubuntu for pushes
-and pull requests. The isolated native smoke test checks the real window,
-preload, gateway and packaged icon without touching existing Codex files.
-Packaging is unsigned CI validation, not production notarization.
-
-On Windows, install `dist/Codex Auth Switcher Setup 1.1.0.exe` to create desktop
-and Start menu shortcuts. The installed application opens its own native window;
-no browser or web manager is required. Each OS uses its own configuration and
-account directory. Import accounts with the existing native directory picker.
-The Windows desktop respects system HTTP/HTTPS proxy and bypass rules when no
-explicit proxy environment variable is set. macOS keeps its existing system
-proxy detection; Linux uses the existing proxy environment configuration.
-
-## Run
-
-Use Node.js 22.12+ for development and packaging. The standalone service supports Node.js 20.11+.
+需要 Node.js 20+；开发和打包建议 Node.js 22+。
 
 ```sh
 npm ci
 npm start
 ```
 
-The **本地 API 服务** and **Codex 连接配置** are independent: the proxy runs whether Codex
-uses Key, a direct authorization file, or has not been configured by this tool.
-The two tabs are **本地代理** (exit file, network, curl and statistics) and **Codex 配置**
-(empty / Key / authorization-file). Selecting a mode only previews its controls; applying is explicit.
-New installations default to empty and never write Codex configuration automatically. Existing
-configured modes persist. Applying empty relinquishes management without writing or clearing
-`config.toml` or `auth.json`; it does not undo an earlier configuration. There is no desktop restore action.
-Choose your authorization backup directory and proxy exit account. Under Codex connection settings,
-click **应用 Key 模式** to connect Codex through the proxy.
-The tool backs up `config.toml` and `auth.json` before installing local API-key authentication.
-It scans active and archived rollout metadata for saved provider IDs, redirects the built-in
-OpenAI provider through `openai_base_url`, and installs local aliases for custom provider IDs.
-Conversation logs and SQLite indexes are never rewritten. Existing custom provider sections
-are retained privately and restored when applying authorization-file mode.
-Restart Codex once after applying this setup, then continue the original conversations.
-Already-loaded connections cannot be changed by writing files. Later proxy account switches
-affect new requests immediately. Applying Key mode remains available for repair and newly imported histories.
-The renderer never receives access tokens, refresh tokens, or the gateway key.
+应用启动后：
 
-### Cursor native completion (Windows and macOS)
+1. 在“本地代理”中选择或导入代理出口账号。
+2. 在“Codex 配置”中选择 Key 模式或授权文件模式。
+3. 应用配置后重启 Codex。
 
-The Cursor tab-completion path uses Cursor's Connect/Protobuf `StreamCpp` protocol;
-an OpenAI-compatible Base URL alone cannot redirect it. The desktop app therefore
-includes a **Cursor 配置** tab. Close Cursor completely, choose **启用本地补全代理**,
-then reopen Cursor. The tool backs up the installed workbench file and changes only
-the native C++ completion and completion-config endpoints to the local gateway.
-Login, chat, and other Cursor endpoints remain on Cursor's servers. **恢复 Cursor
-官方补全** restores the backup. The same action is available from the command line:
+本地代理默认监听 `127.0.0.1:18888`。代理和 Codex 配置可以独立使用；切换代理出口不会修改 Codex 授权文件。
 
-```bash
-node scripts/cursor-local.mjs enable
-node scripts/cursor-local.mjs disable
+### DeepSeek / API Key 账号
+
+在“本地代理 → 添加 DeepSeek 账号”中填写账号名称、Base URL 和 API Key。Base URL 默认为 `https://api.deepseek.com`，也支持其他 OpenAI 兼容服务，可带 `/v1` 路径。
+
+保存后选择账号卡片即可作为代理出口；选择时会通过 `/models` 验证 Key。Key 只保存在本地授权目录，不会返回到界面。
+
+支持接口：
+
+```text
+POST /v1/responses
+POST /v1/chat/completions
+GET  /v1/models
 ```
 
-The script supports the standard Windows and macOS install locations, including
-`app.asar`. Cursor updates replace the workbench file or archive; run enable again
-after an update.
+### 内部重试机制
 
-In any Codex mode, expand **curl 调用示例** for a masked Responses request (ordinary JSON by default).
-Choose **流式 SSE** to copy a streaming request instead.
-The **复制** button attached to the command copies a runnable command with the real local key
-immediately, without a confirmation dialog.
-The main process writes directly to the clipboard; the renderer receives only the masked preview.
-The command defaults to `gpt-6.1-sol` without changing Codex's own configured model, and uses the selected proxy
-account at execution time. macOS/Linux commands target POSIX shells; Windows commands target
-PowerShell and use `curl.exe`. Running a request consumes account usage. Treat copied commands
-as credentials: do not share them, and remember clipboard and terminal history retain the key.
+当上游返回：
 
-Under **授权文件**, the same account cards and usage status as the local proxy are displayed.
-Click **切换到此账号** on a card to back up configuration and credentials, write the selected
-ChatGPT account to `auth.json`, select the OpenAI provider, and set file credential storage.
-This direct-file switch does not renew tokens or query upstream usage. Expired/revoked credentials
-can be copied; Codex may still require a new login when using them. Usage-query errors do not block
-the copy. Proxy exit changes still validate account access before routing requests.
-It removes only the managed proxy section and authentication fields, preserving unrelated settings
-including edits made since proxy setup. Mode changes require restarting Codex.
-Changing the proxy exit never writes Codex authorization, even in direct-file mode. Applying a
-different direct-file account never changes the proxy exit. Curl and LAN calls continue using the
-proxy exit in every Codex mode. Updating Codex authorization requires restarting Codex, not the proxy.
-Key mode means a fixed local proxy key, not converting a subscription token into an OpenAI API key.
-Stop active Codex tasks before changing modes or direct authorization files; other Codex processes
-can still independently refresh credentials. Timestamp/UUID backups stay in the private state directory.
+```text
+Selected model is at capacity. Please try a different model.
+```
 
-Closing the window exits the application and stops its owned proxy without a confirmation dialog,
-including active proxy requests. Pending statistics writes finish before exit.
-If a standalone service already owns the port, the window connects to that service instead;
-closing the window does not stop that independently owned service.
-The desktop does not offer a restore action; private safety backups are retained.
+本地代理会在请求返回给 Codex 之前进行内部重试；502 Bad Gateway 和流式网络断开也会按同一策略重试。这样可以在上游短暂繁忙时自动恢复，避免立即把容量错误暴露给 Codex。
 
-## Standalone service
+在“代理设置”中可调整：
 
-### Daily, weekly, and monthly tokens
+- 最大重试次数：`0–20`，默认 `5`
+- 最短等待时间：默认 `1` 秒
+- 最长等待时间：默认 `5` 秒
 
-Open the **用量统计** chart-icon button for a separate statistics page. Select today, this week,
-or this month, then filter a single account
-or all accounts, with input/output/total tokens, cached and reasoning details, request coverage,
-and a 24-hour daily chart or per-day weekly/monthly chart. Weeks start on Monday and months are
-calendar months, in Beijing time; future dates appear as zero. Existing daily records are aggregated
-without double-counting. The page refreshes every ten seconds. Requests are assigned to their completion
-date in Asia/Shanghai (UTC+8), and to the account fixed when that request was admitted.
-Statistics include all calls through the proxy (Codex, curl, LAN), not direct authorization-file
-traffic or use before this feature was installed. Unknown usage from missing/failed/interrupted
-responses is shown separately; displayed token totals may therefore be lower than actual usage.
-Cached tokens are already part of input tokens and reasoning tokens are already part of output:
-neither is added again to total tokens. Daily JSON files are stored privately under `statistics/`
-in the state directory, using cross-process locks and atomic writes. No prompts, responses, authentication tokens,
-or raw account IDs are persisted. Copies of the same authenticated identity share one account row.
-Statistics endpoints remain local-only when LAN access is enabled. Failed writes trigger the
-existing DingTalk error path; configuring its webhook is still required for actual delivery.
+设置为 0 表示不重试。达到上限后，代理才会把最后一次上游错误返回给客户端。
 
-## Standalone service commands
+### 请求记录与统计
+
+“请求记录”保存请求状态、尝试次数和错误事件。记录按日期写入 `requests-YYYY-MM-DD.sqlite3`，单日最多保留 2000 条，单条请求/响应正文最多保存 256KB。
+
+“用量统计”按代理出口统计 Token 使用量。统计文件保存在应用私有状态目录中。
+
+### 独立运行代理
 
 ```sh
-node proxy/server.mjs initialize --account account.json
+node proxy/server.mjs initialize
 node proxy/server.mjs serve
-# In another terminal:
-node proxy/server.mjs select --account account.json
-node proxy/server.mjs configure
 node proxy/server.mjs status
-node proxy/server.mjs restore
+node proxy/server.mjs select --account account.json
 ```
 
-Environment variables:
+### 局域网 Web 管理（可选）
 
-| Variable | Purpose |
+```sh
+node proxy/web.mjs
+```
+
+Web 管理默认端口为 `18889`，代理端口为 `18888`。使用前设置 `AUTH_SWITCHER_WEB_PASSWORD_FILE`，文件中放置至少 10 位管理密码。只应在可信局域网使用，不要将 HTTP 端口暴露到公网。
+
+### 环境变量
+
+| 变量 | 用途 |
 | --- | --- |
-| `AUTH_SWITCHER_HOME` | Private state directory. Defaults to macOS Application Support or `~/.codex-auth-switcher`. |
-| `AUTH_SWITCHER_AUTH_DIR` | Authorization backups directory used on first initialization. Choose a different directory in the Electron window. |
-| `CODEX_HOME` | Codex configuration directory. Defaults to `~/.codex`. |
-| `HTTPS_PROXY` | Outbound HTTP proxy. macOS system HTTPS proxy settings are detected when this is absent. |
-| `AUTH_SWITCHER_DINGTALK_WEBHOOK` | DingTalk robot webhook for serious proxy/authorization errors, deduplicated for five minutes. Tokens and prompts are excluded. |
+| `AUTH_SWITCHER_HOME` | 应用状态目录 |
+| `AUTH_SWITCHER_AUTH_DIR` | 授权文件目录 |
+| `CODEX_HOME` | Codex 配置目录 |
+| `HTTPS_PROXY` | 上游 HTTP/HTTPS 代理 |
+| `AUTH_SWITCHER_DINGTALK_WEBHOOK` | 重要错误钉钉通知 |
+| `AUTH_SWITCHER_WEB_PASSWORD_FILE` | Web 管理密码文件 |
+| `AUTH_SWITCHER_WEB_PORT` | Web 管理端口 |
 
-New installs default to `127.0.0.1:18888`; existing saved ports are preserved until changed.
-Use **允许局域网访问** and **应用网络设置** to enable trusted LAN clients. The proxy then binds
-to all IPv4 interfaces and permits only private/link-local IPv4 peers. Public-address peers are rejected.
-Account management and health endpoints still require a loopback connection, even with a valid key;
-forwarded-IP headers do not grant access. No browser origins are accepted.
-The window lists detected LAN Base URLs and offers LAN-specific curl commands with the same key.
-When LAN access is enabled, the displayed address and default curl use the first discovered LAN IP,
-not loopback. Select another LAN interface if needed. With no LAN IPv4 address available, copying is
-disabled rather than generating an unusable loopback command. The local Codex connection still uses
-loopback so its configuration does not depend on DHCP addresses.
-Choose the reachable physical network interface if VPNs create multiple addresses. On the remote
-computer, configure the displayed LAN Base URL and copied local key using a Responses-compatible client.
-Firewalls must allow the chosen port; IP addresses may change with DHCP. This feature does not configure
-firewalls or routers. Do not forward the port to the internet: HTTP traffic is unencrypted.
-
-Ports are editable from 1024 through 65535. Active requests block reconfiguration. A failed bind restores
-the old settings and restarts the previous listener. In Key mode, port changes update the local Codex
-provider Base URL with a backup; restart Codex afterward. Remote clients must update their URLs separately.
-Turning LAN access off does not require changing the local Codex Base URL.
-The generated key is stored in a private `proxy.json` and Codex provider settings, both mode `0600` on Unix.
-Authorization files retain the existing JSON format and use atomic replacement with `0600` permissions.
-Keychain migration is not included in this version; Windows users should restrict the state and auth directories to their own account.
-
-Supported routes: `POST /v1/responses`, `POST /v1/responses/compact`, `POST /v1/chat/completions`, `GET /v1/models`.
-Each request fixes its upstream account at admission. Existing streams retain that account after a switch.
-SSE streams use backpressure and propagate cancellation; headers, upstream status codes, request IDs, and rate-limit headers are forwarded.
-Responses requests honor `stream`: omitted/false returns one Responses JSON object; true forwards SSE unchanged.
-For legacy Codex credentials the upstream requires SSE, so non-streaming requests collect the final response
-while retaining output items (including tools/reasoning), usage, and incomplete status. Failed or truncated
-streams produce an error instead of partial success; aggregation is limited to 32 MiB of upstream events.
-API-key upstreams receive the requested streaming flag directly. Ordinary text `input` is adapted to the
-legacy Codex backend's message-array format. Codex connections continue to use Responses.
-WebSockets are disabled in the installed provider. Conversation requests must carry full input, without `previous_response_id`.
-Model inference is routed to the Codex backend for legacy Codex OAuth credentials, and to the standard API for explicit API credentials or newer OAuth registrations.
-Use **本地代理 → 添加 DeepSeek 账号** in either the desktop or Web UI to enter an account name,
-Base URL (defaults to `https://api.deepseek.com`) and API Key. Save the account, then select its card
-as the proxy exit; selection validates access using the configured `/models` endpoint without inference.
-**编辑配置** changes the Base URL or replaces the Key; leave Key empty to retain it. Saved Keys
-are never returned to the UI. Configuration is stored in the selected authorization directory with
-private file permissions. Existing JSON files such as
-`{"provider":"deepseek","base_url":"https://api.deepseek.com","DEEPSEEK_API_KEY":"sk-..."}` also work.
-Base URLs may include a path such as `/v1`; the proxy appends `/responses`, `/chat/completions` or `/models`.
-Use HTTPS whenever possible; HTTP sends the upstream Key in plaintext.
-DeepSeek accounts route `/v1/responses` and `/v1/chat/completions` to the configured Base URL
-and retain the OpenAI-compatible request and response format. DeepSeek natively supports
-[Responses](https://api-docs.deepseek.com/zh-cn/guides/responses_api/), including streaming and tools.
-Specify a DeepSeek model such as `deepseek-flash` in your client; saving an account does not change
-Codex's model configuration. Compact and ChatGPT subscription quota queries are unavailable.
-Their cards are excluded from Codex authorization-file mode. The curl example automatically uses
-Chat Completions with `deepseek-flash` for DeepSeek exits; clients can supply any supported model.
-Subscription accounts are validated using the usage API before selection. API-key account selection is currently not exposed in the subscription picker.
-Refreshing a legacy Codex session uses its legacy OAuth endpoint; newer registered clients use the documented registration endpoint.
-Refreshes use `proper-lockfile` across UI and service requests, save rotated credentials together, and retry an expired-token request at most once.
-Refresh terminal errors require a new login. The application does not pool accounts or switch automatically on limits.
-Do not run the old Swift switcher alongside the new application: it may overwrite or independently refresh the same credentials.
-
-## Package
+### 开发、测试与打包
 
 ```sh
 npm test
 npm run test:desktop
 npm run pack
-# Create the installer for the current platform:
 npm run dist
+npm run dist:win
 ```
 
-Electron Builder has targets for macOS, Windows (NSIS), and Linux (AppImage).
-Build release artifacts on the corresponding platform. Windows installation and
-Linux native startup have been exercised; macOS validation is covered by the CI
-job and requires a successful macOS run. Icons and macOS template tray artwork
-are generated by `npm run build:icons` before packaging. A Linux Electron runtime
-installed under `/opt` must have its `chrome-sandbox` helper owned by root with
-mode `4755`; keep the Chromium sandbox enabled when running as a regular user.
-Production signing/notarization must be configured before distributing outside this computer.
+macOS 解包应用位于 `dist/mac-arm64/Codex Auth Switcher.app`。`npm run dist:win` 生成 Windows x64 NSIS 安装包和 zip 包；请在 Windows 上运行 `Codex Auth Switcher Setup 1.1.0.exe` 安装，不要直接运行解包目录。
 
-## LAN Web management (Linux)
+### 数据与安全
 
-Run `node proxy/web.mjs` for a password-protected account manager on port 18889.
-It starts the existing loopback-only proxy on 18888 in the same process. Set
-`AUTH_SWITCHER_WEB_PASSWORD_FILE` to a private file containing a random password
-(at least 10 characters; a long random password is recommended). Browser username is `admin`. The root page shows a login
-form without requiring a native HTTP Basic dialog (which embedded browsers may
-not support). The login page shares the original desktop stylesheet, with a
-small responsive login layout. Only the shared stylesheet and login CSS are
-public; application scripts and all management data still require login.
-Login uses an HttpOnly, SameSite=Strict cookie lasting eight hours;
-service restarts invalidate sessions. Five failed login attempts per address
-block further attempts until the one-minute window expires. API requests can
-also use HTTP Basic credentials. `AUTH_SWITCHER_WEB_PORT`
-changes the web port. Existing `AUTH_SWITCHER_HOME`, `AUTH_SWITCHER_AUTH_DIR`,
-`CODEX_HOME` and `HTTPS_PROXY` also apply.
+授权文件、API Key、本地代理 Key 和请求记录都保存在本机私有目录。不要分享包含真实 Key 的 curl 命令、配置文件或请求记录。HTTP 局域网模式不加密，建议只使用 HTTPS 上游和可信网络。
 
-The web UI supports listing/importing ChatGPT credential files, querying usage,
-selecting the proxy exit and applying Key or authorization-file mode. It never
-returns account credentials. The explicit curl-copy action returns the local proxy
-key to the authenticated browser so it can write the complete command to the
-clipboard; previews remain masked. The original management endpoints remain
-loopback-only. The web layer rejects public peers, unapproved hosts, cross-origin
-requests, unguarded writes and unknown routes. Uploads are limited to 1 MiB and
-existing account filenames are not overwritten. Only use trusted LANs: HTTP is
-unencrypted. Do not expose this port through router forwarding.
+## English
 
-On Surface, `/etc/systemd/system/codex-auth-switcher.service` runs the web process
-with `Restart=on-failure`, an explicit proxy and the private authorization directory
-`/root/Codex-auth`. It is enabled at boot. Check with
-`/bin/systemctl status codex-auth-switcher` and use the journal for logs.
+Codex Auth Switcher is a cross-platform Electron app with a local OpenAI-compatible proxy. It manages ChatGPT authorization files and DeepSeek/API key accounts, allowing Codex, curl, or trusted LAN clients to use the selected proxy account.
 
-### Original desktop functionality in a browser
+It supports macOS, Windows, and Linux. The UI defaults to English and can switch to Simplified Chinese.
+The web process owns the scheduled authorization refresh loop. It scans every six
+hours and renews renewable OAuth files whose access token expires within 24 hours.
+The loop stops with the process, detects a changed authorization directory within
+one minute, and does not require a separate system timer or service. The desktop
+process uses the same embedded loop when it owns the local gateway.
 
-The authenticated root page serves `electron/index.html`, `electron/style.css`
-and the **unchanged** `electron/renderer.js`. `proxy/web-bridge.js` supplies the
-same `authSwitcher` interface as Electron's preload, using authenticated HTTP
-requests. There is no separate account-card or statistics implementation.
-The desktop application's files and behavior remain unchanged.
+### Quick start
 
-Both frontends use the existing gateway handlers for account listing, quota and
-membership queries, validated proxy-exit switching, Key configuration, direct
-authorization-file switching, empty mode and daily/weekly/monthly statistics.
-Proxy-exit switching and Codex authorization remain independent, including live
-requests. Empty mode preserves existing Codex files, as on the desktop.
+Node.js 20+ is required. Node.js 22+ is recommended for development and packaging.
 
-Network settings use the existing `changeNetwork` implementation, including
-in-flight request guards, port-conflict rollback and managed Codex URL updates.
-The manager on 18889 stays available when the proxy port changes. The directory
-picker browses folders **on the server**, pauses/restarts the owned gateway,
-clears the proxy selection and rolls back state if startup fails. It does not
-rewrite the existing Codex authorization file. A separate import button uploads
-JSON files from the browser's computer into the selected server directory.
+```sh
+npm ci
+npm start
+```
 
-Curl preview/copy uses the original `curlCommand` and `shareHost` logic. HTTP LAN
-pages fall back to browser copy support when the secure Clipboard API is absent.
-Closing a browser tab leaves the systemd-managed gateway running. OS-only tray,
-app menu and native filesystem dialogs are not browser controls.
+After launch:
 
-### Surface Codex and Feishu runtime controls
+1. Select or import a proxy account in **Local proxy**.
+2. Choose key mode or authorization-file mode in **Codex configuration**.
+3. Restart Codex after applying the configuration.
 
-On Linux, set `AUTH_SWITCHER_MANAGE_CODEX=1` in the web service environment to expose the
-runtime controls in **Codex 配置**. This integration runs only the fixed command
-`/bin/systemctl restart cc-connect.service`; browser input cannot choose a unit,
-executable or shell command. Status includes the service PID and child-process
-count. `KillMode=control-group` is required so restart releases the bridge's Codex
-subprocesses. Other independently launched Codex processes are not managed.
+The local proxy listens on `127.0.0.1:18888` by default. Proxy and Codex configuration are independent; switching the proxy account does not modify Codex authorization files.
 
-**重启 Codex／飞书连接** restarts the bridge after an authorization-file or Key
-configuration change. **应用代理模式并重启** requires an already selected proxy
-exit, applies the original Key configuration to the server's Codex home, and
-then restarts the bridge. Both actions require authenticated, guarded POSTs.
-The page asks for explicit confirmation because current Feishu tasks may be
-interrupted. The API rejects active/unknown child processes unless `force: true`
-was explicitly supplied. Success requires an active service with a changed PID;
-configuration success followed by restart failure is reported separately.
+### DeepSeek / API key accounts
 
-Once Key mode is active, Codex and Feishu use the local Responses gateway.
-Changing the proxy exit affects new requests without restarting the bridge;
-running requests retain their original account. Selecting a direct authorization
-file instead returns Codex to direct-file mode and requires a bridge restart.
-Local Codex verification also accepts a successful `response.completed` SSE
-event when the client closes before upstream EOF. Streams canceled before a
-completed event are not counted as completed or used as connection evidence.
+Open **Local proxy → Add DeepSeek account** and enter an account name, Base URL, and API key. The default Base URL is `https://api.deepseek.com`. Other OpenAI-compatible services are supported, including URLs with a `/v1` path.
 
-Validate with `npm test`. `tests/web-parity.test.mjs` exercises these operations
-against a real isolated gateway with temporary Codex files and mocked upstream
-responses, without touching the user's credentials or consuming account quota.
+After saving, select the account card as the proxy exit. Selection validates the key through `/models`. Keys are stored only in the local authorization directory and are never returned to the UI.
+
+Supported routes:
+
+```text
+POST /v1/responses
+POST /v1/chat/completions
+GET  /v1/models
+```
+
+### Internal retry mechanism
+
+When the upstream returns:
+
+```text
+Selected model is at capacity. Please try a different model.
+```
+
+The local proxy internally retries this response before returning it to Codex. `502 Bad Gateway` and streaming disconnects use the same retry policy. This can recover from temporary upstream capacity or network failures without immediately exposing the error to Codex.
+
+The **Proxy settings** dialog controls:
+
+- Max retries: `0–20`, default `5`
+- Minimum delay: default `1` second
+- Maximum delay: default `5` seconds
+
+Set max retries to 0 to disable retries. Once the limit is reached, the proxy returns the final upstream error to the client.
+
+### Request logs and statistics
+
+**Request logs** store status, attempt counts, and error events. Logs are stored in daily files named `requests-YYYY-MM-DD.sqlite3`; each day keeps at most 2,000 records and each request/response body is limited to 256KB.
+
+**Usage statistics** report token usage by proxy account and are stored in the private application state directory.
+
+### Standalone proxy
+
+```sh
+node proxy/server.mjs initialize
+node proxy/server.mjs serve
+node proxy/server.mjs status
+node proxy/server.mjs select --account account.json
+```
+
+### Optional LAN web manager
+
+```sh
+node proxy/web.mjs
+```
+
+The web manager uses port `18889` and the proxy uses `18888` by default. Set `AUTH_SWITCHER_WEB_PASSWORD_FILE` to a file containing a password of at least 10 characters. Use it only on a trusted LAN and never expose the HTTP port to the public internet.
+
+### Environment variables
+
+| Variable | Purpose |
+| --- | --- |
+| `AUTH_SWITCHER_HOME` | Application state directory |
+| `AUTH_SWITCHER_AUTH_DIR` | Authorization directory |
+| `CODEX_HOME` | Codex configuration directory |
+| `HTTPS_PROXY` | Upstream HTTP/HTTPS proxy |
+| `AUTH_SWITCHER_DINGTALK_WEBHOOK` | DingTalk alerts for serious errors |
+| `AUTH_SWITCHER_WEB_PASSWORD_FILE` | Web manager password file |
+| `AUTH_SWITCHER_WEB_PORT` | Web manager port |
+
+### Development, testing, and packaging
+
+```sh
+npm test
+npm run test:desktop
+npm run pack
+npm run dist
+npm run dist:win
+```
+
+The macOS unpacked app is generated at `dist/mac-arm64/Codex Auth Switcher.app`. `npm run dist:win` generates a Windows x64 NSIS installer and zip package. Run `Codex Auth Switcher Setup 1.1.0.exe` on Windows to install the app; do not launch the unpacked directory directly.
+
+### Data and security
+
+Authorization files, API keys, the local proxy key, and request logs are stored in private local directories. Do not share curl commands, configuration files, or request logs containing real keys. LAN HTTP is unencrypted; use HTTPS upstreams and trusted networks.
+
+## License
+
+[MIT License](LICENSE)

@@ -10,6 +10,7 @@ import { desktopHTML, webAsset } from './web-assets.mjs';
 import { createWebOperations } from './web-operations.mjs';
 import { createWebRuntime } from './web-runtime.mjs';
 import { isDeepSeek, deepSeekSettings } from './credentials.mjs';
+import { createRefreshService } from './refresh-service.mjs';
 
 const loginFile = new URL('./web-login.html', import.meta.url);
 const routes = new Map([
@@ -116,11 +117,14 @@ export async function createWeb({ directory = defaultDirectory, password, host =
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
     const password = (await fs.readFile(process.env.AUTH_SWITCHER_WEB_PASSWORD_FILE || path.join(defaultDirectory, 'web-password'), 'utf8')).trim();
     const gateway = await start();
+    const refreshService = createRefreshService({ directory: defaultDirectory });
+    refreshService.start();
     const operations = createWebOperations(defaultDirectory, { gateway,
         call: route => localCall(defaultDirectory, route) });
     const web = await createWeb({ password, operations, port: Number(process.env.AUTH_SWITCHER_WEB_PORT || 18889) });
     console.log('Codex Auth Switcher web ready on port ' + web.address().port);
     for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, async () => {
+        await refreshService.stop();
         web.closeAllConnections(); web.close(); await operations.close(); process.exit(0);
     });
 }

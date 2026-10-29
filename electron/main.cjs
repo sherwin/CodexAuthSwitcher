@@ -13,6 +13,7 @@ let service;
 let directory;
 let networkBusy = false;
 let externalService = false;
+let refreshService;
 
 // Membership is a ChatGPT web endpoint. Use the desktop's normal Chromium network
 // stack and system proxy, without sharing browser cookies; inference stays in Node.
@@ -59,6 +60,11 @@ else {
             try { gateway = await service.start(directory, gatewayOptions); }
             catch (error) { await dialog.showMessageBox({ type: 'error', message: 'Local proxy could not start',
                 detail: error.code === 'EADDRINUSE' ? `Port ${state.port} is occupied by another process.` : 'Check your account directory and file permissions.' }); }
+        }
+        if (!externalService) {
+            const { createRefreshService } = await import('../proxy/refresh-service.mjs');
+            refreshService = createRefreshService({ directory });
+            refreshService.start();
         }
         ipcMain.handle('proxy-call', async (_event, action, input) => {
             if (networkBusy && action !== 'status') return { ok: false, error: '网络设置正在更新，请稍后重试。' };
@@ -158,7 +164,8 @@ app.on('before-quit', event => {
     event.preventDefault();
     // Repeated quit events share shutdown; finish pending statistics writes before exiting.
     if (shutdownPromise) return;
-    shutdownPromise = Promise.resolve().then(async () => {
+    const refreshStop = refreshService?.stop?.();
+    shutdownPromise = Promise.resolve(refreshStop).then(async () => {
         await gateway?.close();
         const byok = await import('../scripts/cursor-byok-sidecar.mjs');
         await byok.stopCursorByok({ restore: true });

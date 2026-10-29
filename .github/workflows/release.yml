@@ -1,0 +1,92 @@
+name: Release desktop packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to publish or repair'
+        required: true
+        default: 'v1.1.1'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }} packages
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-latest
+            packages: |
+              dist/*.exe
+              dist/*.zip
+          - platform: macos
+            os: macos-latest
+            packages: |
+              dist/*.dmg
+              dist/*.zip
+          - platform: linux
+            os: ubuntu-latest
+            packages: |
+              dist/*.AppImage
+              dist/*.deb
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build release packages
+        run: npm run dist
+      - name: Upload platform packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-auth-switcher-${{ matrix.platform }}
+          path: ${{ matrix.packages }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download platform packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: codex-auth-switcher-*
+          path: release-assets
+          merge-multiple: true
+      - name: Verify downloaded packages
+        shell: bash
+        run: |
+          find release-assets -type f -maxdepth 3 -print
+          test -n "$(find release-assets -type f -print -quit)"
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          mapfile -t assets < <(find release-assets -type f -print)
+          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" "${assets[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
+          else
+            gh release create "${RELEASE_TAG}" "${assets[@]}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "Codex Auth Switcher ${RELEASE_TAG}" \
+              --generate-notes
+          fi

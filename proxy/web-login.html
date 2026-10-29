@@ -1,30 +1,33 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>登录 · Codex Auth Switcher</title>
+<title>Sign in · Codex Auth Switcher</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="login.css">
 </head>
 <body class="web-login">
 <main class="login-shell">
-    <header><div><p class="eyebrow">SURFACE / LAN ACCOUNT GATEWAY</p><h1>Codex Auth Switcher</h1><p class="muted">管理 Surface 上的 Codex 账号与本地代理。</p></div></header>
+    <header><div><p class="eyebrow">LINUX / LAN ACCOUNT GATEWAY</p><h1>Codex Auth Switcher</h1><p class="muted">Manage Codex accounts and the local proxy on this Linux host.</p></div><label class="language-picker"><span class="sr-only">Language</span><select id="language-select" aria-label="Language"><option value="en">English</option><option value="zh">简体中文</option></select></label></header>
     <form id="login" class="card" aria-labelledby="login-title">
-        <h2 id="login-title">登录</h2>
-        <p class="muted login-description">使用管理账号继续。</p>
-        <label>用户名<input name="username" autocomplete="username" value="admin" required></label>
-        <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
-        <button class="primary" type="submit">登录</button>
+        <h2 id="login-title">Sign in</h2>
+        <p class="muted login-description">Use the administrator account to continue.</p>
+        <label>Username<input name="username" autocomplete="username" value="admin" required></label>
+        <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+        <button class="primary" type="submit">Sign in</button>
         <p id="message" class="danger" role="status" aria-live="polite"></p>
     </form>
 </main>
 <script>
+sessionStorage.removeItem('codex-auth-login-redirect');
+const loginMessage=sessionStorage.getItem('codex-auth-login-message');
+if(loginMessage){document.getElementById('message').textContent=loginMessage;sessionStorage.removeItem('codex-auth-login-message');}
 document.getElementById('login').onsubmit=async event=>{
     event.preventDefault();const form=event.target,button=form.querySelector('button'),message=document.getElementById('message');
-    button.disabled=true;message.textContent='正在登录…';
+    button.disabled=true;message.textContent='Signing in…';
     try{const response=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json','X-Switcher-Web':'1'},body:JSON.stringify(Object.fromEntries(new FormData(form)))});
-        if(!response.ok)throw Error(response.status===429?'尝试次数过多，请一分钟后重试':'用户名或密码不正确');
+        if(!response.ok)throw Error(response.status===429?'Too many attempts. Try again in one minute.':'Invalid username or password');
         location.replace('/');
     }catch(error){message.textContent=error.message}finally{button.disabled=false}
 };
-</script></body></html>
+</script><script src="i18n.js"></script></body></html>

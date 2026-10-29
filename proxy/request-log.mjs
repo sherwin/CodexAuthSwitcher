@@ -5,6 +5,8 @@ import initSqlJs from 'sql.js';
 import { atomicWrite } from './storage.mjs';
 
 const require = createRequire(import.meta.url);
+const maxRecords = 2000;
+const maxBodyCharacters = 256 * 1024;
 
 const schema = `
 CREATE TABLE IF NOT EXISTS request_logs (
@@ -30,12 +32,18 @@ CREATE INDEX IF NOT EXISTS request_logs_started_at_idx ON request_logs(started_a
 
 function jsonBody(value) {
     if (value === undefined || value === null) return '';
-    try { return JSON.stringify(value); } catch { return String(value); }
+    try { return limitBody(JSON.stringify(value)); } catch { return limitBody(String(value)); }
+}
+
+function limitBody(value) {
+    const text = String(value ?? '');
+    return text.length > maxBodyCharacters ? `${text.slice(0, maxBodyCharacters)}\n…(truncated)` : text;
 }
 
 export async function createRequestLog(directory) {
     const SQL = await initSqlJs({ locateFile: file => path.join(path.dirname(require.resolve('sql.js')), file) });
-    const file = path.join(directory, 'requests.sqlite3');
+    const day = new Date().toISOString().slice(0, 10);
+    const file = path.join(directory, `requests-${day}.sqlite3`);
     const bytes = await fs.readFile(file).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
     const db = new SQL.Database(bytes || undefined);
     db.run(schema);
@@ -56,8 +64,9 @@ export async function createRequestLog(directory) {
                 entry.startedAt, entry.finishedAt, entry.method, entry.path, entry.account || null,
                 Number.isInteger(entry.status) ? entry.status : null, entry.success ? 1 : 0,
                 Math.max(0, Number(entry.durationMs) || 0), jsonBody(entry.requestBody),
-                typeof entry.responseBody === 'string' ? entry.responseBody : jsonBody(entry.responseBody), entry.errorCode || null, entry.model || null,
+                limitBody(typeof entry.responseBody === 'string' ? entry.responseBody : jsonBody(entry.responseBody)), entry.errorCode || null, entry.model || null,
                 entry.errorMessage || null, Math.max(1, Number(entry.attemptCount) || 1), jsonBody(entry.errorEvents || [])]);
+            db.run(`DELETE FROM request_logs WHERE id NOT IN (SELECT id FROM request_logs ORDER BY id DESC LIMIT ${maxRecords})`);
             await persist();
         },
         list(limit = 15, offset = 0, filter = 'all') {

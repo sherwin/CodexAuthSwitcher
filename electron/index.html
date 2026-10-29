@@ -11,7 +11,7 @@
   <div id="home-page">
   <header>
     <div><p class="eyebrow">LOCAL ACCOUNT GATEWAY</p><h1>Codex Auth Switcher</h1><p class="muted">本地代理与 Codex 连接配置，独立管理。</p></div>
-    <div class="actions"><button id="open-statistics" class="statistics-link" aria-label="查看日周月 Token 用量"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10m8 10V4m8 16v-7"/></svg>用量统计</button><button id="open-request-logs">请求记录</button><button id="open-settings">设置</button><button id="refresh">刷新额度</button></div>
+    <div class="actions toolbar-actions"><button id="open-statistics" class="statistics-link" aria-label="查看日周月 Token 用量"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10m8 10V4m8 16v-7"/></svg>用量统计</button><button id="open-request-logs">请求记录</button><button id="open-settings">设置</button><button id="refresh">刷新额度</button><label class="language-picker"><span class="sr-only">Language</span><select id="language-select" aria-label="Language"><option value="en">English</option><option value="zh">简体中文</option></select></label></div>
   </header>
   <nav id="workspace-tabs" class="workspace-tabs" role="tablist" aria-label="配置管理">
     <button id="tab-proxy" role="tab" aria-selected="true" aria-controls="proxy-page" tabindex="0">本地代理</button>
@@ -106,7 +106,7 @@
     <p id="statistics-status" class="muted" role="status"></p>
   </section>
   <div id="notification" class="notification" hidden><span id="message" role="status" aria-live="polite"></span><button id="dismiss-notification" type="button" aria-label="关闭提示">×</button></div>
-  <dialog id="settings-dialog"><form method="dialog" id="settings-form"><h2>代理设置</h2><p class="muted">容量、502 Bad Gateway 和流式网络断开会在内部随机等待后重试。</p><label><input id="capacity-retry-enabled" type="checkbox"> 开启自动重试</label><div class="settings-range"><label>最短秒<input id="capacity-retry-min" type="number" min="0.1" max="60" step="0.1"></label><label>最长秒<input id="capacity-retry-max" type="number" min="0.1" max="60" step="0.1"></label></div><p id="settings-status" class="muted"></p><div class="dialog-actions"><button value="cancel">取消</button><button id="save-settings" class="primary" value="default">保存设置</button></div></form></dialog>
-  <script src="renderer.js"></script>
+  <dialog id="settings-dialog"><form method="dialog" id="settings-form"><h2>代理设置</h2><p class="muted">容量、502 Bad Gateway 和流式网络断开会在内部随机等待后重试。</p><label><input id="capacity-retry-enabled" type="checkbox"> 开启自动重试</label><div class="settings-range"><label>最大重试次数<input id="capacity-retry-max-retries" type="number" min="0" max="20" step="1"></label><label>最短秒<input id="capacity-retry-min" type="number" min="0.1" max="60" step="0.1"></label><label>最长秒<input id="capacity-retry-max" type="number" min="0.1" max="60" step="0.1"></label></div><p id="settings-status" class="muted"></p><div class="dialog-actions"><button value="cancel">取消</button><button id="save-settings" class="primary" value="default">保存设置</button></div></form></dialog>
+  <script src="i18n.js"></script><script src="renderer.js"></script>
 </body>
 </html>
