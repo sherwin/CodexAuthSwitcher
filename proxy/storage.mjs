@@ -10,12 +10,13 @@ export const defaultDirectory = process.env.AUTH_SWITCHER_HOME || path.join(os.h
 export const defaultAuthDirectory = process.env.AUTH_SWITCHER_AUTH_DIR ||
     path.join(os.homedir(), process.platform === 'darwin' ? 'Code/Codex-auth' : 'Codex-auth');
 export const codexDirectory = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
-export const defaultCapacityRetrySettings = Object.freeze({ enabled: true, min_seconds: 1, max_seconds: 5 });
+export const defaultCapacityRetrySettings = Object.freeze({ enabled: true, min_seconds: 1, max_seconds: 5, max_retries: 5 });
 export function normalizeCapacityRetrySettings(value) {
     const source = value && typeof value === 'object' ? value : {};
     const min = Math.min(60, Math.max(0.1, Number(source.min_seconds) || 1));
     const max = Math.min(60, Math.max(min, Number(source.max_seconds) || 5));
-    return { enabled: source.enabled !== false, min_seconds: min, max_seconds: max };
+    const maxRetries = Math.min(20, Math.max(0, Number.isFinite(Number(source.max_retries)) ? Math.floor(Number(source.max_retries)) : 5));
+    return { enabled: source.enabled !== false, min_seconds: min, max_seconds: max, max_retries: maxRetries };
 }
 export function normalizePrioritySettings(value) {
     const source = value && typeof value === 'object' ? value : {};

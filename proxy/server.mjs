@@ -21,7 +21,6 @@ import { createRequestLog } from './request-log.mjs';
 
 const maxBody = 32 * 1024 * 1024;
 const retryableAuthCodes = new Set(['token_expired', 'invalid_token', 'token_invalidated']);
-const maxCapacityRetries = 5;
 function retryableStreamError(error) { return /network|disconnect|socket|body|fetch|transport/i.test(String(error?.message || error)); }
 async function transientResponse(response) {
     if (!response || response.ok || ![429, 500, 502, 503, 504].includes(response.status)) return false;
@@ -483,7 +482,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             let result;
             let capacityRetries = 0;
             const capacityRetry = normalizeCapacityRetrySettings(state.capacity_retry);
-            for (let attempt = 0; attempt < 2 + maxCapacityRetries; attempt++) {
+            for (let attempt = 0; attempt < 2 + capacityRetry.max_retries; attempt++) {
                 const target = upstream(record, route[1]);
                 if (!target.token) throw new ProxyError('Account has no usable token.', 'login_required', 401);
                 const headers = { Authorization: `Bearer ${target.token}`, 'Content-Type': 'application/json',
@@ -500,17 +499,17 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 if (result.ok && upstreamStream && stream) {
                     try {
                         const buffered = await bufferStream(result.body);
-                        if (!streamCompleted(buffered) && capacityRetry.enabled && capacityRetries < maxCapacityRetries) {
+                        if (!streamCompleted(buffered) && capacityRetry.enabled && capacityRetries < capacityRetry.max_retries) {
                             capacityRetries++; await waitRetry(capacityRetry); attempt--; continue;
                         }
                         result = new Response(buffered, { status: result.status, headers: result.headers });
                     } catch (error) {
                         attemptErrors.push({ attempt: attemptCount, account: name, code: error.code || 'stream_error', message: error.message });
-                        if (capacityRetry.enabled && capacityRetries < maxCapacityRetries && retryableStreamError(error)) { capacityRetries++; await waitRetry(capacityRetry); attempt--; continue; }
+                        if (capacityRetry.enabled && capacityRetries < capacityRetry.max_retries && retryableStreamError(error)) { capacityRetries++; await waitRetry(capacityRetry); attempt--; continue; }
                         throw error;
                     }
                 }
-                if (capacityRetry.enabled && capacityRetries < maxCapacityRetries && await transientResponse(result)) {
+                if (capacityRetry.enabled && capacityRetries < capacityRetry.max_retries && await transientResponse(result)) {
                     capacityRetries++; await waitRetry(capacityRetry); attempt--; continue;
                 }
                 const errorKey = `${name}`;

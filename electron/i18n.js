@@ -35,7 +35,7 @@
         '总 Token': 'Total tokens', '输入 Token': 'Input tokens', '输出 Token': 'Output tokens', '请求次数': 'Requests',
         '本机代理': 'Local proxy', '读取 Codex 连接方式…': 'Loading Codex connection mode…',
         '当前账号': 'Current account', '重试设置已保存。': 'Retry settings saved.', '取消': 'Cancel', '保存设置': 'Save settings',
-        '代理设置': 'Proxy settings', '开启自动重试': 'Enable automatic retry', '最短秒': 'Min seconds', '最长秒': 'Max seconds',
+        '代理设置': 'Proxy settings', '开启自动重试': 'Enable automatic retry', '最大重试次数': 'Max retries', '最短秒': 'Min seconds', '最长秒': 'Max seconds',
         '暂无请求记录。': 'No request logs.', '正在读取请求记录…': 'Loading request logs…', '从左侧选择一条记录。': 'Select a log from the left.',
         '未选择记录': '(No record selected)', '未发现局域网 IPv4 地址，请检查网络连接。': 'No LAN IPv4 address found. Check the network connection.',
         '局域网已开启，但未发现私有 IPv4 地址，请检查网络连接。': 'LAN is enabled, but no private IPv4 address was found.',

@@ -23,10 +23,11 @@ let savingDeepSeek = false;
 let requestLogs = [], requestLogsPage = 1, requestLogsTotalPages = 1, requestLogsTotal = 0, requestLogsFilter = 'all';
 let priorityData = { priority: { enabled: true }, entries: [] };
 
-function renderCapacityRetrySettings(settings = health?.capacity_retry || { enabled: true, min_seconds: 1, max_seconds: 5 }) {
+function renderCapacityRetrySettings(settings = health?.capacity_retry || { enabled: true, min_seconds: 1, max_seconds: 5, max_retries: 5 }) {
     document.querySelector('#capacity-retry-enabled').checked = settings.enabled !== false;
     document.querySelector('#capacity-retry-min').value = settings.min_seconds;
     document.querySelector('#capacity-retry-max').value = settings.max_seconds;
+    document.querySelector('#capacity-retry-max-retries').value = settings.max_retries;
 }
 async function savePriorityBoard(enabledZone, disabledZone, status) {
     const order = [...enabledZone.querySelectorAll('.account-card'), ...disabledZone.querySelectorAll('.account-card')].map(row => row.dataset.name);
@@ -571,7 +572,7 @@ document.querySelector('#configure').addEventListener('click', async () => {
     finally { busy = false; await updateHealth(); render(); }
 });
 document.querySelector('#open-settings').addEventListener('click', async () => { const result = await call('settings'); renderCapacityRetrySettings(result.capacity_retry); document.querySelector('#settings-dialog').showModal(); });
-document.querySelector('#save-settings').addEventListener('click', async event => { event.preventDefault(); const status = document.querySelector('#settings-status'); try { const min = Number(document.querySelector('#capacity-retry-min').value), max = Number(document.querySelector('#capacity-retry-max').value); const result = await call('settings', { capacity_retry: { enabled: document.querySelector('#capacity-retry-enabled').checked, min_seconds: min, max_seconds: max } }); renderCapacityRetrySettings(result.capacity_retry); document.querySelector('#settings-dialog').close(); message('重试设置已保存。'); } catch (error) { status.textContent = error.message; } });
+document.querySelector('#save-settings').addEventListener('click', async event => { event.preventDefault(); const status = document.querySelector('#settings-status'); try { const min = Number(document.querySelector('#capacity-retry-min').value), max = Number(document.querySelector('#capacity-retry-max').value), maxRetries = Number(document.querySelector('#capacity-retry-max-retries').value); const result = await call('settings', { capacity_retry: { enabled: document.querySelector('#capacity-retry-enabled').checked, min_seconds: min, max_seconds: max, max_retries: maxRetries } }); renderCapacityRetrySettings(result.capacity_retry); document.querySelector('#settings-dialog').close(); message('重试设置已保存。'); } catch (error) { status.textContent = error.message; } });
 document.querySelector('#open-request-logs').addEventListener('click', () => { document.querySelector('#home-page').hidden = true; document.querySelector('#request-logs-page').hidden = false; refreshRequestLogs(1); });
 document.querySelector('#back-from-logs').addEventListener('click', () => { document.querySelector('#request-logs-page').hidden = true; document.querySelector('#home-page').hidden = false; });
 document.querySelector('#refresh-request-logs').addEventListener('click', () => refreshRequestLogs());
