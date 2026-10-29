@@ -2,9 +2,9 @@ import { promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
-import http from 'node:http';
 import net from 'node:net';
 import tls from 'node:tls';
+import { Readable } from 'node:stream';
 import { injectCursorAuthState, restoreCursorAuthState } from './cursor-local.mjs';
 import selfsigned from 'selfsigned';
 
@@ -29,14 +29,14 @@ async function caTrusted() {
     const certificate = await fs.readFile(certFile, 'utf8');
     for (const anchor of anchors) {
         const value = process.platform === 'darwin' ? await exec('security', ['find-certificate', '-a', '-Z', anchor]).then(result => result.stdout).catch(() => '') : await fs.readFile(anchor, 'utf8').catch(() => '');
-        if (value.includes('Codex Auth Switcher Local CA') || value.trim() === certificate.trim()) return { state: 'ready', certFile };
+        if (/(?:Codex Auth Switcher Local CA|\*\.cursor\.sh)/i.test(value) || value.trim() === certificate.trim()) return { state: 'ready', certFile };
     }
     return { state: 'untrusted', certFile };
 }
 
 async function generateCa() {
     await fs.mkdir(path.dirname(certFile), { recursive: true });
-    const generated = selfsigned.generate([{ name: 'commonName', value: '*.cursor.sh' }], { days: 1825, keySize: 2048, algorithm: 'sha256', extensions: [{ name: 'basicConstraints', cA: true }, { name: 'subjectAltName', altNames: [{ type: 2, value: '*.cursor.sh' }, { type: 2, value: 'cursor.sh' }] }] });
+    const generated = selfsigned.generate([{ name: 'commonName', value: 'Codex Auth Switcher Local CA' }], { days: 1825, keySize: 2048, algorithm: 'sha256', extensions: [{ name: 'basicConstraints', cA: true }, { name: 'subjectAltName', altNames: [{ type: 2, value: '*.cursor.sh' }, { type: 2, value: 'cursor.sh' }] }] });
     await fs.writeFile(certFile, generated.cert, 'utf8');
     await fs.writeFile(keyFile, generated.private, 'utf8');
 }
@@ -87,9 +87,17 @@ function startMitm(baseUrl) {
                     if (requestBuffer.length < bodyStart + length) return;
                     const body = requestBuffer.subarray(bodyStart, bodyStart + length);
                     fetch(`${baseUrl}${match[2]}`, { method: match[1], headers, body: body.length ? body : undefined }).then(async upstream => {
-                        const payload = Buffer.from(await upstream.arrayBuffer());
-                        const responseHeaders = [`HTTP/1.1 ${upstream.status} ${upstream.statusText || 'OK'}`, `Content-Length: ${payload.length}`, 'Connection: close', ...[...upstream.headers].filter(([key]) => !['content-length', 'connection', 'transfer-encoding'].includes(key)).map(([key, value]) => `${key}: ${value}`)];
-                        secure.write(`${responseHeaders.join('\r\n')}\r\n\r\n`); secure.end(payload);
+                        const contentType = upstream.headers.get('content-type') || '';
+                        const streaming = contentType.includes('text/event-stream') || !upstream.headers.has('content-length');
+                        const responseHeaders = [`HTTP/1.1 ${upstream.status} ${upstream.statusText || 'OK'}`, streaming ? 'Transfer-Encoding: chunked' : `Content-Length: ${upstream.headers.get('content-length')}`, 'Connection: close', ...[...upstream.headers].filter(([key]) => !['content-length', 'connection', 'transfer-encoding'].includes(key)).map(([key, value]) => `${key}: ${value}`)];
+                        secure.write(`${responseHeaders.join('\r\n')}\r\n\r\n`);
+                        if (!upstream.body) return secure.end();
+                        if (!streaming) return secure.end(Buffer.from(await upstream.arrayBuffer()));
+                        for await (const chunk of Readable.fromWeb(upstream.body)) {
+                            const data = Buffer.from(chunk);
+                            secure.write(`${data.length.toString(16)}\r\n`); secure.write(data); secure.write('\r\n');
+                        }
+                        secure.end('0\r\n\r\n');
                     }).catch(() => secure.destroy());
                     secure.removeAllListeners('data');
                 });
@@ -107,6 +115,23 @@ function startMitm(baseUrl) {
 
 export function cursorByokExecutable() { return null; }
 export async function prepareCursorByok() { await fs.mkdir(root, { recursive: true }); return { root }; }
-export async function startCursorByok(options = {}) { await prepareCursorByok(options); await injectCursorAuthState(); await backupSettings(); const ca = await ensureCaTrust(); const proxyUrl = await startMitm(options.baseUrl); await applySettings(proxyUrl); return { running: true, pid: process.pid, proxyUrl, takeover: 'native-cursor-mitm', tabMode: 'native', tabAddress: options.baseUrl, ca }; }
+export async function startCursorByok(options = {}) {
+    await prepareCursorByok(options);
+    let injected = false;
+    let backedUp = false;
+    try {
+        await injectCursorAuthState(); injected = true;
+        await backupSettings(); backedUp = true;
+        const ca = await ensureCaTrust();
+        const proxyUrl = await startMitm(options.baseUrl);
+        await applySettings(proxyUrl);
+        return { running: true, pid: process.pid, proxyUrl, takeover: 'native-cursor-mitm', tabMode: 'native', tabAddress: options.baseUrl, ca };
+    } catch (error) {
+        await new Promise(resolve => mitmServer ? mitmServer.close(resolve) : resolve()); mitmServer = null;
+        if (backedUp) await stopCursorByok({ restore: true }).catch(() => {});
+        else if (injected) await restoreCursorAuthState().catch(() => {});
+        throw error;
+    }
+}
 export async function stopCursorByok({ restore = true } = {}) { await new Promise(resolve => mitmServer ? mitmServer.close(resolve) : resolve()); mitmServer = null; if (restore && await fs.stat(settingsBackup).catch(() => null)) { const stat = await fs.stat(settingsBackup); if (stat.size) await fs.copyFile(settingsBackup, settingsFile); else await fs.rm(settingsFile, { force: true }); await fs.rm(settingsBackup, { force: true }); } if (restore) await restoreCursorAuthState(); return { running: false, restored: restore }; }
 export { caTrusted };
