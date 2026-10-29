@@ -191,10 +191,18 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
         let attemptCount = 0;
         let shouldRecord = false;
         const responseChunks = [];
+        let responseBytes = 0;
         const originalWrite = response.write.bind(response);
         const originalEnd = response.end.bind(response);
-        response.write = (chunk, ...args) => { if (chunk && responseChunks.reduce((n, b) => n + b.length, 0) < maxBody) responseChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)); return originalWrite(chunk, ...args); };
-        response.end = (chunk, ...args) => { if (chunk && responseChunks.reduce((n, b) => n + b.length, 0) < maxBody) responseChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)); return originalEnd(chunk, ...args); };
+        const captureResponse = chunk => {
+            if (!chunk || responseBytes >= maxBody) return;
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            const remaining = maxBody - responseBytes;
+            responseChunks.push(buffer.subarray(0, remaining));
+            responseBytes += Math.min(buffer.length, remaining);
+        };
+        response.write = (chunk, ...args) => { captureResponse(chunk); return originalWrite(chunk, ...args); };
+        response.end = (chunk, ...args) => { captureResponse(chunk); return originalEnd(chunk, ...args); };
         try {
             if (!authenticated(request, initial.key)) {
                 sendJSON(response, 401, { error: { code: 'local_key_required', message: 'Local gateway authentication required.' } });
