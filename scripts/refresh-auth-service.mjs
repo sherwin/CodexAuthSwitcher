@@ -1,71 +1,12 @@
-import { promises as fs } from 'node:fs';
+export * from '../proxy/refresh-service.mjs';
 import path from 'node:path';
-import { defaultDirectory, initialize, readJSON, accountPath } from '../proxy/storage.mjs';
-import { Credentials, claims, isDeepSeek } from '../proxy/credentials.mjs';
-import { upstreamFetch } from '../proxy/server.mjs';
+import { createRefreshService } from '../proxy/refresh-service.mjs';
 
-export const refreshIntervalMs = 6 * 60 * 60 * 1000;
-export const directoryCheckIntervalMs = 60 * 1000;
-export const tokenRefreshWindowSeconds = 86400;
-
-export async function accountFiles(authDirectory, fsApi = fs) {
-    const names = await fsApi.readdir(authDirectory);
-    return names.filter(name => name.endsWith('.json')).sort();
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
+    const service = createRefreshService();
+    service.start();
+    for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, async () => {
+        await service.stop();
+        process.exit(0);
+    });
 }
-
-function expiry(record) { return claims(record?.tokens?.access_token || '').exp || 0; }
-
-export async function refreshAll({ directory = defaultDirectory, fsApi = fs,
-    fetchUpstream = upstreamFetch(), log = console.log } = {}) {
-    await initialize(directory);
-    const state = await readJSON(path.join(directory, 'proxy.json'));
-    const authDirectory = state.auth_directory;
-    const credentials = new Credentials(directory, authDirectory, fetchUpstream);
-    const results = [];
-    for (const name of await accountFiles(authDirectory, fsApi)) {
-        const file = accountPath({ auth_directory: authDirectory }, name);
-        const before = await readJSON(file).catch(() => null);
-        if (!before || before.OPENAI_API_KEY || isDeepSeek(before)) {
-            results.push({ name, status: 'skipped', reason: 'non-renewable' }); continue;
-        }
-        try {
-            const after = await credentials.get(file);
-            const changed = expiry(after) !== expiry(before);
-            results.push({ name, status: changed ? 'refreshed' : 'valid', expiresAt: expiry(after) });
-        } catch (error) {
-            results.push({ name, status: 'error', code: error.code || 'refresh_failed', error: error.message });
-        }
-    }
-    log(JSON.stringify({ event: 'refresh_all', results: results.map(({ name, status, code, reason }) => ({ name, status, code, reason })) }));
-    return { authDirectory, results };
-}
-
-export async function runService(options = {}) {
-    const interval = options.intervalMs || refreshIntervalMs;
-    let stopped = false;
-    const stop = () => { stopped = true; };
-    for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, stop);
-    let activeDirectory;
-    let nextRefreshAt = 0;
-    while (!stopped) {
-        try {
-            const state = await readJSON(path.join(options.directory || defaultDirectory, 'proxy.json'));
-            if (state.auth_directory !== activeDirectory) {
-                activeDirectory = state.auth_directory;
-                nextRefreshAt = 0;
-                (options.log || console.log)(JSON.stringify({ event: 'refresh_directory_changed', authDirectory: activeDirectory }));
-            }
-            if (Date.now() >= nextRefreshAt) {
-                const refreshed = await refreshAll(options);
-                activeDirectory = refreshed.authDirectory;
-                nextRefreshAt = Date.now() + interval;
-            }
-        }
-        catch (error) { (options.log || console.error)(JSON.stringify({ event: 'refresh_all_failed', error: error.message })); }
-        if (stopped) break;
-        const wait = Math.max(1000, Math.min(directoryCheckIntervalMs, nextRefreshAt - Date.now()));
-        await new Promise(resolve => setTimeout(resolve, wait));
-    }
-}
-
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) runService();

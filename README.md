@@ -111,6 +111,11 @@ macOS 解包应用位于 `dist/mac-arm64/Codex Auth Switcher.app`。`npm run dis
 Codex Auth Switcher is a cross-platform Electron app with a local OpenAI-compatible proxy. It manages ChatGPT authorization files and DeepSeek/API key accounts, allowing Codex, curl, or trusted LAN clients to use the selected proxy account.
 
 It supports macOS, Windows, and Linux. The UI defaults to English and can switch to Simplified Chinese.
+The web process owns the scheduled authorization refresh loop. It scans every six
+hours and renews renewable OAuth files whose access token expires within 24 hours.
+The loop stops with the process, detects a changed authorization directory within
+one minute, and does not require a separate system timer or service. The desktop
+process uses the same embedded loop when it owns the local gateway.
 
 ### Quick start
 
