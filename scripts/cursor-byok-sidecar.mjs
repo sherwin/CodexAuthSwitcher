@@ -84,9 +84,28 @@ function startMitm(baseUrl) {
                     const headers = Object.fromEntries(lines.map(line => line.split(/:\s*/, 2)).filter(parts => parts.length === 2).map(([key, value]) => [key.toLowerCase(), value]));
                     const length = Number(headers['content-length'] || 0);
                     const bodyStart = marker + 4;
-                    if (requestBuffer.length < bodyStart + length) return;
-                    const body = requestBuffer.subarray(bodyStart, bodyStart + length);
-                    fetch(`${baseUrl}${match[2]}`, { method: match[1], headers, body: body.length ? body : undefined }).then(async upstream => {
+                    const chunked = /chunked/i.test(headers['transfer-encoding'] || '');
+                    let body;
+                    if (chunked) {
+                        const encoded = requestBuffer.subarray(bodyStart);
+                        const chunks = []; let cursor = 0; let complete = false;
+                        while (cursor < encoded.length) {
+                            const lineEnd = encoded.indexOf('\r\n', cursor); if (lineEnd < 0) return;
+                            const size = Number.parseInt(encoded.subarray(cursor, lineEnd).toString('ascii').split(';', 1)[0], 16);
+                            if (!Number.isFinite(size) || size < 0) return secure.destroy();
+                            cursor = lineEnd + 2;
+                            if (encoded.length < cursor + size + 2) return;
+                            if (size === 0) { complete = true; break; }
+                            chunks.push(encoded.subarray(cursor, cursor + size)); cursor += size + 2;
+                        }
+                        if (!complete) return;
+                        body = Buffer.concat(chunks);
+                    } else {
+                        if (requestBuffer.length < bodyStart + length) return;
+                        body = requestBuffer.subarray(bodyStart, bodyStart + length);
+                    }
+                    const forwardHeaders = Object.fromEntries(Object.entries(headers).filter(([key]) => !['host', 'connection', 'content-length', 'transfer-encoding'].includes(key)));
+                    fetch(`${baseUrl}${match[2]}`, { method: match[1], headers: forwardHeaders, body: body.length ? body : undefined }).then(async upstream => {
                         const contentType = upstream.headers.get('content-type') || '';
                         const streaming = contentType.includes('text/event-stream') || !upstream.headers.has('content-length');
                         const responseHeaders = [`HTTP/1.1 ${upstream.status} ${upstream.statusText || 'OK'}`, streaming ? 'Transfer-Encoding: chunked' : `Content-Length: ${upstream.headers.get('content-length')}`, 'Connection: close', ...[...upstream.headers].filter(([key]) => !['content-length', 'connection', 'transfer-encoding'].includes(key)).map(([key, value]) => `${key}: ${value}`)];
