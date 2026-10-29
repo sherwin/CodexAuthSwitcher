@@ -646,6 +646,7 @@ document.querySelector('#test-local-service').addEventListener('click', async ()
     } catch (error) { status.textContent = `本地服务异常：${error.message}`; }
     finally { button.disabled = false; }
 });
+
 setInterval(updateHealth, 3000);
 document.querySelector('#open-statistics').addEventListener('click', () => {
     statisticsVisible = true;
