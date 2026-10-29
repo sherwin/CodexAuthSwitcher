@@ -83,7 +83,7 @@ else {
             if (action === 'enable') {
                 const result = await byok.startCursorByok({ baseUrl: `http://127.0.0.1:${currentState.port}`,
                     key: currentState.key, model: 'gpt-6.1-sol' });
-                return { ...result, takeover: 'cursor-byok', baseUrl: result.proxyUrl };
+                return { ...result, takeover: 'native-cursor-protocol', baseUrl: result.proxyUrl };
             }
             return byok.stopCursorByok({ restore: true });
         });

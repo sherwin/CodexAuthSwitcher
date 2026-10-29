@@ -30,7 +30,7 @@
     <div class="network-controls">
     <label><input id="lan-enabled" type="checkbox"> 允许局域网访问</label>
     <label>端口 <input id="proxy-port" type="number" min="1024" max="65535" value="18888" step="1"></label>
-    <button id="apply-network">应用网络设置</button>
+    <button id="apply-network">应用网络设置</button><button id="test-local-service">测试本地服务</button>
     <span id="network-status" class="muted" role="status"></span>
     </div>
     <p id="network-addresses" class="muted"></p>
@@ -79,8 +79,8 @@
   <section id="cursor-page" role="tabpanel" aria-labelledby="tab-cursor" hidden>
     <section class="card codex-panel" aria-labelledby="cursor-title">
       <div class="list-heading"><h2 id="cursor-title">Cursor 代码联想与 Tab</h2></div>
-      <p class="notice">通过 cursor-byok 的本地 CA、HTTPS MITM 和协议适配接管 Cursor Chat 与 Tab，复用当前出口账号的额度与自动切换。</p>
-      <p class="muted">首次启用会启动 cursor-byok 并初始化本地 CA；系统可能弹出证书信任授权。启用前请完全退出 Cursor，启用后重新打开 Cursor。关闭时会恢复 Cursor 原有代理设置。</p>
+      <p class="notice">通过内置的本地 CA、HTTPS MITM 和 Cursor 协议适配接管 Cursor Chat 与 Tab，复用当前出口账号的额度与自动切换。</p>
+      <p class="muted">首次启用会初始化内置本地 CA；系统可能弹出证书信任授权。启用前请完全退出 Cursor，启用后重新打开 Cursor。关闭时会恢复 Cursor 原有代理设置。</p>
       <div class="actions"><button id="cursor-enable" class="primary">初始化并接管 Cursor</button><button id="cursor-disable">停止接管并恢复</button></div>
       <p id="cursor-status" class="muted" role="status"></p>
     </section>

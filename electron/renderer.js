@@ -554,8 +554,8 @@ async function configureCursor(action) {
     try {
         const result = await api.cursorConfigure(action);
         status.textContent = action === 'enable'
-            ? `已启动 cursor-byok 接管：${result.baseUrl || '本地 MITM'}（CA：${result.ca?.state === 'ready' ? '已信任' : '待系统授权'}）。请重新打开 Cursor 读取代理。`
-            : '已停止 cursor-byok 接管并恢复 Cursor 原有设置。';
+            ? `已启动内置 Cursor 接管：${result.baseUrl || '本地 MITM'}（CA：${result.ca?.state === 'ready' ? '已信任' : '待系统授权'}）。请重新打开 Cursor 读取代理。`
+            : '已停止内置 Cursor 接管并恢复 Cursor 原有设置。';
     } catch (error) { status.textContent = `操作失败：${error.message}`; }
     finally { enable.disabled = disable.disabled = false; }
 }
@@ -633,6 +633,18 @@ document.querySelector('#apply-network').addEventListener('click', async () => {
             ? '已应用并更新 Codex Base URL，请重启 Codex。' : '网络设置已应用。';
     } catch (error) { status.textContent = error.message; }
     finally { networkBusy = false; button.disabled = false; await updateHealth(); }
+});
+document.querySelector('#test-local-service').addEventListener('click', async () => {
+    const button = document.querySelector('#test-local-service');
+    const status = document.querySelector('#network-status');
+    button.disabled = true;
+    status.textContent = '正在测试本地服务…';
+    try {
+        const health = await call('status');
+        if (!health?.proxy_running) throw new Error('本地服务未运行。');
+        status.textContent = `本地服务正常（${health.port || '未知端口'}）`;
+    } catch (error) { status.textContent = `本地服务异常：${error.message}`; }
+    finally { button.disabled = false; }
 });
 setInterval(updateHealth, 3000);
 document.querySelector('#open-statistics').addEventListener('click', () => {
