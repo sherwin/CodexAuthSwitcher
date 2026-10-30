@@ -659,6 +659,14 @@ document.querySelector('#dismiss-notification').addEventListener('click', () => 
     document.querySelector('#notification').hidden = true;
 });
 setInterval(() => { if (statisticsVisible) refreshStatistics(); }, 10000);
+window.addEventListener('languagechange', () => {
+    // 语言切换后重新渲染动态卡片、状态和当前页面，避免必须重启应用。
+    window.i18n?.apply();
+    render();
+    updateHealth();
+    if (statisticsVisible) renderStatistics();
+    if (!document.querySelector('#request-logs-page').hidden) renderRequestLogs();
+});
 refresh();
 
 

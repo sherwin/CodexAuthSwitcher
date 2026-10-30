@@ -179,7 +179,13 @@
         }
         const select = document.querySelector('#language-select'); if (select) select.value = language;
     }
-    function setLanguage(next) { if (!['en', 'zh'].includes(next) || next === language) return; language = next; localStorage.setItem('codex-auth-switcher-language', language); location.reload(); }
+    function setLanguage(next) {
+        if (!['en', 'zh'].includes(next) || next === language) return;
+        language = next;
+        localStorage.setItem('codex-auth-switcher-language', language);
+        apply();
+        window.dispatchEvent(new CustomEvent('languagechange', { detail: { language } }));
+    }
     window.i18n = Object.freeze({ get language() { return language; }, t: translateText, apply, setLanguage });
     document.addEventListener('DOMContentLoaded', () => {
         apply(); document.querySelector('#language-select')?.addEventListener('change', event => setLanguage(event.target.value));
