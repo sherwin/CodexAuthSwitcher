@@ -20,7 +20,7 @@ let codexMode;
 let observedCodexMode;
 let editingDeepSeek = false;
 let savingDeepSeek = false;
-let requestLogs = [], requestLogsPage = 1, requestLogsTotalPages = 1, requestLogsTotal = 0, requestLogsFilter = 'all';
+let requestLogs = [], requestLogsPage = 1, requestLogsTotalPages = 1, requestLogsTotal = 0, requestLogsFilter = 'all', requestLogsLoading = false;
 let priorityData = { priority: { enabled: true }, entries: [] };
 
 function renderCapacityRetrySettings(settings = health?.capacity_retry || { enabled: true, min_seconds: 1, max_seconds: 5, max_retries: 5 }) {
@@ -39,10 +39,26 @@ function renderRequestLogs() {
     const target = document.querySelector('#request-logs-list'); target.replaceChildren();
     document.querySelector('#request-logs-page-label').textContent = tr(`第 ${requestLogsPage} / ${requestLogsTotalPages} 页 · 共 ${requestLogsTotal} 条`);
     document.querySelector('#request-logs-prev').disabled = requestLogsPage <= 1; document.querySelector('#request-logs-next').disabled = requestLogsPage >= requestLogsTotalPages;
+    document.querySelector('#request-logs-go').disabled = requestLogsLoading;
     for (const item of requestLogs) { const button = element('button', `request-log-row ${item.success ? 'success' : 'failure'}`); button.type = 'button'; button.append(element('strong', '', `${item.method} ${item.path} · ${item.model || '模型未知'}`), element('span', '', `${item.startedAt} · HTTP ${item.status || '—'} · ${item.durationMs} ms · 尝试 ${item.attemptCount || 1}${item.errorCode ? ` · ${item.errorCode}` : ''}`)); button.onclick = () => showRequestLog(item.id); target.append(button); }
     if (!requestLogs.length) target.append(element('p', 'muted', '暂无请求记录。'));
 }
-async function refreshRequestLogs(page = requestLogsPage) { const target = document.querySelector('#request-logs-list'); target.replaceChildren(element('p', 'request-logs-loading', '正在读取请求记录…')); try { const result = await call('requestLogs', { page, filter: requestLogsFilter }); requestLogs = result.logs || []; requestLogsPage = result.page || 1; requestLogsTotalPages = result.totalPages || 1; requestLogsTotal = result.total || 0; renderRequestLogs(); } catch (error) { target.replaceChildren(element('p', 'card-status error', error.message)); } }
+async function refreshRequestLogs(page = requestLogsPage) {
+    if (requestLogsLoading) return;
+    const target = document.querySelector('#request-logs-list');
+    requestLogsLoading = true;
+    target.replaceChildren(...Array.from({ length: 8 }, () => element('div', 'request-log-skeleton')));
+    document.querySelector('#request-logs-prev').disabled = true;
+    document.querySelector('#request-logs-next').disabled = true;
+    document.querySelector('#request-logs-go').disabled = true;
+    try {
+        const result = await call('requestLogs', { page, filter: requestLogsFilter });
+        requestLogs = result.logs || []; requestLogsPage = result.page || 1;
+        requestLogsTotalPages = result.totalPages || 1; requestLogsTotal = result.total || 0;
+        renderRequestLogs();
+    } catch (error) { target.replaceChildren(element('p', 'card-status error', error.message)); }
+    finally { requestLogsLoading = false; renderRequestLogs(); }
+}
 async function showRequestLog(id) { const detail = document.querySelector('#request-log-detail'); detail.setAttribute('aria-busy', 'true'); document.querySelector('#request-log-detail-title').textContent = tr('读取记录…'); document.querySelector('#request-log-request-body').textContent = tr('读取中…'); document.querySelector('#request-log-response-body').textContent = tr('读取中…'); try { const item = await call('requestLog', { id }); let events = item.errorEvents; try { events = JSON.parse(item.errorEvents || '[]'); } catch {} document.querySelector('#request-log-detail-title').textContent = tr(`记录 #${item.id} · ${item.method} ${item.path}`); document.querySelector('#request-log-detail-meta').textContent = tr(`${item.startedAt} · 模型 ${item.model || '未知'} · HTTP ${item.status || '—'} · ${item.durationMs} ms · 尝试 ${item.attemptCount || 1} · ${item.success ? '成功' : '失败'}${item.errorCode ? ` · ${item.errorCode}` : ''}${item.errorMessage ? ` · ${item.errorMessage}` : ''} · 错误事件 ${events.length}`); document.querySelector('#request-log-request-body').textContent = item.requestBody || '(空)'; document.querySelector('#request-log-response-body').textContent = (events.length ? `尝试错误：\n${JSON.stringify(events, null, 2)}\n\n` : '') + (item.responseBody || '(空)'); } catch (error) { document.querySelector('#request-log-detail-meta').textContent = tr(error.message); } finally { detail.removeAttribute('aria-busy'); } }
 
 function openDeepSeek(item) {

@@ -278,7 +278,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             }
             if (url.pathname === '/admin/request-logs' && request.method === 'GET') {
                 const filter = new URL(request.url, 'http://127.0.0.1').searchParams.get('filter') || 'all';
-                const pageSize = 10, total = requestLog.count(filter), totalPages = Math.max(1, Math.ceil(total / pageSize));
+                const pageSize = 15, total = requestLog.count(filter), totalPages = Math.max(1, Math.ceil(total / pageSize));
                 sendJSON(response, 200, { logs: requestLog.list(pageSize, 0, filter), page: 1, pageSize, total, totalPages, filter }); return;
             }
             if (url.pathname.startsWith('/admin/request-logs/') && request.method === 'GET') {
@@ -299,7 +299,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 requestBody = input;
                 if (url.pathname === '/admin/request-logs') {
                     const filter = ['all', 'errors', 'capacity', 'network'].includes(input.filter) ? input.filter : 'all';
-                    const pageSize = 10, total = requestLog.count(filter), totalPages = Math.max(1, Math.ceil(total / pageSize));
+                    const pageSize = 15, total = requestLog.count(filter), totalPages = Math.max(1, Math.ceil(total / pageSize));
                     const page = Math.min(totalPages, Math.max(1, Number(input.page) || 1));
                     sendJSON(response, 200, { logs: requestLog.list(pageSize, (page - 1) * pageSize, filter), page, pageSize, total, totalPages, filter }); return;
                 }
