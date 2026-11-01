@@ -16,6 +16,24 @@ const settingsBackup = `${settingsFile}.codex-auth-switcher-backup`;
 const certFile = path.join(root, 'ca', 'ca.crt');
 const keyFile = path.join(root, 'ca', 'ca.key');
 let mitmServer;
+let activeResult;
+const takeoverFile = path.join(root, 'takeover.json');
+
+export async function readTakeover(file = takeoverFile, settings = settingsFile, backup = settingsBackup) {
+    const saved = await fs.readFile(file, 'utf8').then(JSON.parse).catch(() => null);
+    if (saved?.enabled && Number.isInteger(saved.port) && saved.port > 0 && saved.port < 65536) return saved;
+    // Migrate an earlier takeover only when its recoverable settings backup exists.
+    if (!(await fs.stat(backup).catch(() => null))) return null;
+    const current = await fs.readFile(settings, 'utf8').then(JSON.parse).catch(() => ({}));
+    const match = /^http:\/\/127\.0\.0\.1:(\d+)$/.exec(current['http.proxy'] || '');
+    const port = Number(match?.[1]);
+    return port > 0 && port < 65536 ? { enabled: true, port } : null;
+}
+
+export async function resumeCursorByok(options) {
+    const saved = await readTakeover();
+    return saved ? startCursorByok({ ...options, port: saved.port }) : { running: false };
+}
 
 function exec(file, args) { return new Promise((resolve, reject) => execFile(file, args, (error, stdout, stderr) => error ? reject(Object.assign(error, { stdout, stderr })) : resolve({ stdout, stderr }))); }
 
@@ -55,7 +73,7 @@ async function ensureCaTrust() { let result = await caTrusted(); if (result.stat
 async function backupSettings() { await fs.mkdir(path.dirname(settingsFile), { recursive: true }); if (!(await fs.stat(settingsBackup).catch(() => null))) await fs.copyFile(settingsFile, settingsBackup).catch(error => error.code === 'ENOENT' ? fs.writeFile(settingsBackup, '') : Promise.reject(error)); }
 async function applySettings(proxyUrl) { const current = await fs.readFile(settingsFile, 'utf8').then(JSON.parse).catch(() => ({})); await fs.writeFile(settingsFile, JSON.stringify({ ...current, 'http.proxy': proxyUrl, 'http.proxySupport': 'on', 'http.experimental.systemCertificatesV2': true }, null, 2)); }
 
-function startMitm(baseUrl) {
+function startMitm(baseUrl, port = 0) {
     const secureContext = tls.createSecureContext({ cert: readFileSync(certFile), key: readFileSync(keyFile) });
     const listener = net.createServer(socket => {
         let header = Buffer.alloc(0);
@@ -128,13 +146,14 @@ function startMitm(baseUrl) {
         socket.on('data', onConnectData);
         socket.on('error', () => socket.destroy());
     });
-    listener.listen(0, '127.0.0.1');
+    listener.listen(port, '127.0.0.1');
     return new Promise((resolve, reject) => { listener.once('listening', () => { mitmServer = listener; resolve(`http://127.0.0.1:${listener.address().port}`); }); listener.once('error', reject); });
 }
 
 export function cursorByokExecutable() { return null; }
 export async function prepareCursorByok() { await fs.mkdir(root, { recursive: true }); return { root }; }
 export async function startCursorByok(options = {}) {
+    if (mitmServer?.listening) return activeResult;
     await prepareCursorByok(options);
     let injected = false;
     let backedUp = false;
@@ -142,9 +161,12 @@ export async function startCursorByok(options = {}) {
         await injectCursorAuthState(); injected = true;
         await backupSettings(); backedUp = true;
         const ca = await ensureCaTrust();
-        const proxyUrl = await startMitm(options.baseUrl);
+        const saved = await readTakeover();
+        const proxyUrl = await startMitm(options.baseUrl, options.port || saved?.port || 0);
         await applySettings(proxyUrl);
-        return { running: true, pid: process.pid, proxyUrl, takeover: 'native-cursor-mitm', tabMode: 'native', tabAddress: options.baseUrl, ca };
+        await fs.writeFile(takeoverFile, JSON.stringify({ enabled: true, port: Number(new URL(proxyUrl).port) }));
+        activeResult = { running: true, pid: process.pid, proxyUrl, takeover: 'native-cursor-mitm', tabMode: 'native', tabAddress: options.baseUrl, ca };
+        return activeResult;
     } catch (error) {
         await new Promise(resolve => mitmServer ? mitmServer.close(resolve) : resolve()); mitmServer = null;
         if (backedUp) await stopCursorByok({ restore: true }).catch(() => {});
@@ -152,5 +174,5 @@ export async function startCursorByok(options = {}) {
         throw error;
     }
 }
-export async function stopCursorByok({ restore = true } = {}) { await new Promise(resolve => mitmServer ? mitmServer.close(resolve) : resolve()); mitmServer = null; if (restore && await fs.stat(settingsBackup).catch(() => null)) { const stat = await fs.stat(settingsBackup); if (stat.size) await fs.copyFile(settingsBackup, settingsFile); else await fs.rm(settingsFile, { force: true }); await fs.rm(settingsBackup, { force: true }); } if (restore) await restoreCursorAuthState(); return { running: false, restored: restore }; }
+export async function stopCursorByok({ restore = true } = {}) { await new Promise(resolve => mitmServer ? mitmServer.close(resolve) : resolve()); mitmServer = null; activeResult = null; if (restore) await fs.rm(takeoverFile, { force: true }); if (restore && await fs.stat(settingsBackup).catch(() => null)) { const stat = await fs.stat(settingsBackup); if (stat.size) await fs.copyFile(settingsBackup, settingsFile); else await fs.rm(settingsFile, { force: true }); await fs.rm(settingsBackup, { force: true }); } if (restore) await restoreCursorAuthState(); return { running: false, restored: restore }; }
 export { caTrusted };

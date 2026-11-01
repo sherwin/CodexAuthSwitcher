@@ -93,6 +93,9 @@ else {
             }
             return byok.stopCursorByok({ restore: true });
         });
+        const cursorTakeover = await import('../scripts/cursor-byok-sidecar.mjs');
+        await cursorTakeover.resumeCursorByok({ baseUrl: `http://127.0.0.1:${state.port}` })
+            .catch(error => console.error('Cursor proxy restart failed:', error.message));
         ipcMain.handle('choose-directory', async () => {
             if (networkBusy) throw new Error('网络设置正在更新。');
             const choice = await dialog.showOpenDialog(window, { title: 'Choose authorization backup directory', properties: ['openDirectory'] });
@@ -168,7 +171,7 @@ app.on('before-quit', event => {
     shutdownPromise = Promise.resolve(refreshStop).then(async () => {
         await gateway?.close();
         const byok = await import('../scripts/cursor-byok-sidecar.mjs');
-        await byok.stopCursorByok({ restore: true });
+        await byok.stopCursorByok({ restore: false });
     }).catch(async () => {
         await gateway?.notifyError?.({ code: 'proxy_shutdown_failed' });
     }).finally(() => {
