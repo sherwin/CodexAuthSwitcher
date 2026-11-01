@@ -369,7 +369,18 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 return;
             }
             if (cursorBidi) {
-                const append = decodeCursorBidiAppend(await rawBody(request));
+                const body = await rawBody(request);
+                let append;
+                try { append = decodeCursorBidiAppend(body); }
+                catch (error) {
+                    // Cursor 3.x adds opaque metadata fields to BidiAppend.
+                    // Preserve the transport correlation ID and let the local
+                    // completion route answer instead of exposing a 502.
+                    append = { requestId: request.headers['x-request-id'] || request.headers['x-cursor-request-id'] || '', payload: body };
+                    console.warn(JSON.stringify({ event: 'cursor_bidi_decode_fallback', error: error.message, bytes: body.length }));
+                }
+                if (!append.requestId) append.requestId = request.headers['x-request-id'] || request.headers['x-cursor-request-id'] || `local-${Date.now()}`;
+                if (!append.payload.length) append.payload = body;
                 if (!append.requestId || !append.payload.length)
                     throw new ProxyError('Cursor BidiAppend 请求缺少 request_id 或消息体。', 'invalid_cursor_request', 400);
                 const prompt = extractCursorChatPrompt(append.payload) ||
