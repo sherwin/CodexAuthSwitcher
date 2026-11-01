@@ -18,6 +18,13 @@ const keyFile = path.join(root, 'ca', 'ca.key');
 let mitmServer;
 let activeResult;
 const takeoverFile = path.join(root, 'takeover.json');
+const debugLogFile = path.join(root, 'cursor-mitm.log');
+
+async function debugLog(event, details = {}) {
+    const line = JSON.stringify({ at: new Date().toISOString(), event, ...details }) + '\n';
+    await fs.mkdir(root, { recursive: true }).catch(() => {});
+    await fs.appendFile(debugLogFile, line, 'utf8').catch(() => {});
+}
 
 export async function readTakeover(file = takeoverFile, settings = settingsFile, backup = settingsBackup) {
     const saved = await fs.readFile(file, 'utf8').then(JSON.parse).catch(() => null);
@@ -76,6 +83,7 @@ async function applySettings(proxyUrl) { const current = await fs.readFile(setti
 function startMitm(baseUrl, port = 0) {
     const secureContext = tls.createSecureContext({ cert: readFileSync(certFile), key: readFileSync(keyFile) });
     const listener = net.createServer(socket => {
+        void debugLog('client_connected', { remote: socket.remoteAddress });
         let header = Buffer.alloc(0);
         const onConnectHeader = () => {
             const end = header.indexOf('\r\n\r\n');
@@ -83,6 +91,9 @@ function startMitm(baseUrl, port = 0) {
             socket.removeListener('data', onConnectData);
             socket.pause();
             const remainder = header.subarray(end + 4);
+            const connectLine = header.subarray(0, end).toString('latin1').split('\r\n', 1)[0] || '';
+            const target = connectLine.replace(/^CONNECT\s+/i, '').split(/\s+/, 1)[0] || '';
+            void debugLog('connect_established', { target, remainderBytes: remainder.length });
             socket.write('HTTP/1.1 200 Connection Established\r\n\r\n', () => {
                 // CONNECT headers and the TLS ClientHello can arrive in one
                 // TCP packet. Put the bytes after the proxy header back before
@@ -123,7 +134,10 @@ function startMitm(baseUrl, port = 0) {
                         body = requestBuffer.subarray(bodyStart, bodyStart + length);
                     }
                     const forwardHeaders = Object.fromEntries(Object.entries(headers).filter(([key]) => !['host', 'connection', 'content-length', 'transfer-encoding'].includes(key)));
+                    void debugLog('request_forward', { method: match[1], path: match[2], target, contentLength: body.length,
+                        requestId: headers['x-request-id'] || headers['x-cursor-request-id'] || null });
                     fetch(`${baseUrl}${match[2]}`, { method: match[1], headers: forwardHeaders, body: body.length ? body : undefined }).then(async upstream => {
+                        void debugLog('response_received', { path: match[2], status: upstream.status, contentType: upstream.headers.get('content-type') || '' });
                         const contentType = upstream.headers.get('content-type') || '';
                         const streaming = contentType.includes('text/event-stream') || !upstream.headers.has('content-length');
                         const responseHeaders = [`HTTP/1.1 ${upstream.status} ${upstream.statusText || 'OK'}`, streaming ? 'Transfer-Encoding: chunked' : `Content-Length: ${upstream.headers.get('content-length')}`, 'Connection: close', ...[...upstream.headers].filter(([key]) => !['content-length', 'connection', 'transfer-encoding'].includes(key)).map(([key, value]) => `${key}: ${value}`)];
@@ -135,7 +149,7 @@ function startMitm(baseUrl, port = 0) {
                             secure.write(`${data.length.toString(16)}\r\n`); secure.write(data); secure.write('\r\n');
                         }
                         secure.end('0\r\n\r\n');
-                    }).catch(() => secure.destroy());
+                    }).catch(error => { void debugLog('forward_error', { path: match[2], error: error.message }); secure.destroy(); });
                     secure.removeAllListeners('data');
                 });
                 secure.on('error', () => secure.destroy());
@@ -147,7 +161,7 @@ function startMitm(baseUrl, port = 0) {
         socket.on('error', () => socket.destroy());
     });
     listener.listen(port, '127.0.0.1');
-    return new Promise((resolve, reject) => { listener.once('listening', () => { mitmServer = listener; resolve(`http://127.0.0.1:${listener.address().port}`); }); listener.once('error', reject); });
+    return new Promise((resolve, reject) => { listener.once('listening', () => { mitmServer = listener; const address = listener.address(); void debugLog('mitm_listening', { port: address.port, baseUrl }); resolve(`http://127.0.0.1:${address.port}`); }); listener.once('error', error => { void debugLog('mitm_listen_error', { port, error: error.message, code: error.code }); reject(error); }); });
 }
 
 export function cursorByokExecutable() { return null; }
