@@ -162,7 +162,16 @@ export async function startCursorByok(options = {}) {
         await backupSettings(); backedUp = true;
         const ca = await ensureCaTrust();
         const saved = await readTakeover();
-        const proxyUrl = await startMitm(options.baseUrl, options.port || saved?.port || 0);
+        const preferredPort = options.port || saved?.port || 0;
+        let proxyUrl;
+        try {
+            proxyUrl = await startMitm(options.baseUrl, preferredPort);
+        } catch (error) {
+            if (error.code !== 'EADDRINUSE' || !preferredPort) throw error;
+            // A stale helper or a short-lived TIME_WAIT collision must not
+            // prevent takeover. Cursor follows the proxy URL written below.
+            proxyUrl = await startMitm(options.baseUrl, 0);
+        }
         await applySettings(proxyUrl);
         await fs.writeFile(takeoverFile, JSON.stringify({ enabled: true, port: Number(new URL(proxyUrl).port) }));
         activeResult = { running: true, pid: process.pid, proxyUrl, takeover: 'native-cursor-mitm', tabMode: 'native', tabAddress: options.baseUrl, ca };
