@@ -176,19 +176,23 @@ test('modern Cursor BidiAppend and RunSSE complete through the local Responses g
     await writeFile(path.join(auth, 'local.json'), JSON.stringify({ OPENAI_API_KEY: 'local' }));
     await writeFile(path.join(directory, 'proxy.json'), JSON.stringify({ key: 'test-key', port: 0, enabled: true,
         auth_directory: auth, selected_file: 'local.json' }));
-    const gateway = await createGateway(directory, { fetchUpstream: async () =>
-        Response.json({ output: [{ content: [{ type: 'output_text', text: 'LOCAL_CURSOR_REPLY' }] }] }) });
+    const gateway = await createGateway(directory, { fetchUpstream: async (_url, options) => {
+        assert.match(options.body, /Reply with exactly: LOCAL_CURSOR_REPLY/);
+        return Response.json({ output: [{ content: [{ type: 'output_text', text: 'LOCAL_CURSOR_REPLY' }] }] });
+    } });
     t.after(async () => { await gateway.close(); await rm(directory, { recursive: true, force: true }); });
     const base = `http://127.0.0.1:${gateway.server.address().port}`;
     const agentMessage = stringField(1, 'Reply with exactly: LOCAL_CURSOR_REPLY');
     const requestId = stringField(1, 'run-123');
     const append = Buffer.concat([stringField(1, agentMessage.toString('hex')), messageField(2, requestId), bytes(0x18, 1)]);
     const headers = { 'Content-Type': 'application/proto' };
+    const streamPromise = fetch(`${base}/agent.v1.AgentService/RunSSE`, { method: 'POST', headers,
+        body: connectEnvelope(messageField(1, requestId)) });
+    await new Promise(resolve => setTimeout(resolve, 100));
     const accepted = await fetch(`${base}/aiserver.v1.BidiService/BidiAppend`, { method: 'POST', headers,
         body: connectEnvelope(append) });
     assert.equal(accepted.status, 200);
-    const stream = await fetch(`${base}/agent.v1.AgentService/RunSSE`, { method: 'POST', headers,
-        body: connectEnvelope(messageField(1, requestId)) });
+    const stream = await streamPromise;
     assert.equal(stream.status, 200);
     const frames = decodeConnectEnvelopes(Buffer.from(await stream.arrayBuffer()));
     assert.equal(frames.length, 3);

@@ -185,6 +185,19 @@ export function cursorPrompt(request) {
 // represented as one or more UTF-8 length-delimited fields, so collect the
 // readable leaves and use the longest recent value as a provider prompt.
 export function extractCursorChatPrompt(buffer) {
+    // AgentClientMessage.run_request.action.user_message_action.user_message
+    // is the submitted prompt. Other leaves include tool schemas, UUIDs and
+    // workspace metadata, which must never become the user's question.
+    try {
+        const run = firstMessage(buffer, 1);
+        const action = (run && firstMessage(run, 2)) || firstMessage(buffer, 4);
+        const userAction = action && firstMessage(action, 1);
+        const user = userAction && firstMessage(userAction, 1);
+        if (user) {
+            const text = firstString(user, 1);
+            if (text) return text;
+        }
+    } catch { /* Older StreamChat requests use the legacy adapter below. */ }
     const values = [];
     const transportUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     const readable = value => {

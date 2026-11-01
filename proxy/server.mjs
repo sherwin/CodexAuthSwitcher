@@ -386,6 +386,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 const prompt = extractCursorChatPrompt(append.payload) ||
                     'Please answer the latest user message from Cursor Chat.';
                 const model = extractCursorChatModel(append.payload) || 'gpt-6.1-sol';
+                await fs.appendFile(path.join(directory, 'cursor-debug.log'), `${JSON.stringify({ at: new Date().toISOString(), requestId: append.requestId, payloadBytes: append.payload.length, prompt, firstBytes: append.payload.subarray(0, 24).toString('hex') })}\n`).catch(() => {});
                 cursorRuns.set(append.requestId, { prompt, model, at: Date.now() });
                 for (const [id, value] of cursorRuns) if (Date.now() - value.at > 10 * 60 * 1000) cursorRuns.delete(id);
                 response.writeHead(200, cursorProtoHeaders(request));
@@ -398,9 +399,15 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 try { run = decodeCursorRunSseRequest(body); }
                 catch { run = { requestId: request.headers['x-request-id'] || request.headers['x-cursor-request-id'] || '' }; }
                 const runId = run.requestId || request.headers['x-request-id'] || request.headers['x-cursor-request-id'] || '';
-                const pending = (runId && cursorRuns.get(runId)) || {
-                    prompt: 'Please answer the latest user message from Cursor Chat.', model: 'gpt-6.1-sol', at: Date.now()
-                };
+                // RunSSE opens before BidiAppend uploads the prompt. Wait for
+                // that exact run; substituting a generic prompt silently
+                // answers a different question and hides transport failures.
+                const deadline = Date.now() + 15000;
+                while (runId && !cursorRuns.has(runId) && Date.now() < deadline && !response.destroyed) {
+                    await new Promise(resolve => setTimeout(resolve, 25));
+                }
+                const pending = runId && cursorRuns.get(runId);
+                if (!pending) throw new ProxyError('Cursor message upload did not arrive for this run.', 'cursor_message_missing', 408);
                 if (runId) cursorRuns.delete(runId);
                 const localPort = server.address()?.port;
                 if (!localPort) throw new ProxyError('本地代理尚未监听端口。', 'proxy_not_ready', 503);
