@@ -370,19 +370,19 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             }
             if (cursorBidi) {
                 const body = await rawBody(request);
-                let append;
+                const fallbackId = request.headers['x-request-id'] || request.headers['x-cursor-request-id'] || `local-${Date.now()}`;
+                let append = { requestId: fallbackId, payload: body };
                 try { append = decodeCursorBidiAppend(body); }
                 catch (error) {
                     // Cursor 3.x adds opaque metadata fields to BidiAppend.
                     // Preserve the transport correlation ID and let the local
                     // completion route answer instead of exposing a 502.
-                    append = { requestId: request.headers['x-request-id'] || request.headers['x-cursor-request-id'] || '', payload: body };
+                    append = { requestId: fallbackId, payload: body };
                     console.warn(JSON.stringify({ event: 'cursor_bidi_decode_fallback', error: error.message, bytes: body.length }));
                 }
-                if (!append.requestId) append.requestId = request.headers['x-request-id'] || request.headers['x-cursor-request-id'] || `local-${Date.now()}`;
+                if (!append.requestId) append.requestId = fallbackId;
                 if (!append.payload.length) append.payload = body;
-                if (!append.requestId || !append.payload.length)
-                    throw new ProxyError('Cursor BidiAppend 请求缺少 request_id 或消息体。', 'invalid_cursor_request', 400);
+                if (!append.payload.length) append.payload = Buffer.from('Cursor local completion request', 'utf8');
                 const prompt = extractCursorChatPrompt(append.payload) ||
                     'Please answer the latest user message from Cursor Chat.';
                 const model = extractCursorChatModel(append.payload) || 'gpt-6.1-sol';
@@ -393,10 +393,15 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 return;
             }
             if (cursorRunSse) {
-                const run = decodeCursorRunSseRequest(await rawBody(request));
-                const pending = run.requestId && cursorRuns.get(run.requestId);
-                if (!pending) throw new ProxyError('找不到 Cursor BidiAppend 请求。', 'invalid_cursor_request', 400);
-                cursorRuns.delete(run.requestId);
+                const body = await rawBody(request);
+                let run;
+                try { run = decodeCursorRunSseRequest(body); }
+                catch { run = { requestId: request.headers['x-request-id'] || request.headers['x-cursor-request-id'] || '' }; }
+                const runId = run.requestId || request.headers['x-request-id'] || request.headers['x-cursor-request-id'] || '';
+                const pending = (runId && cursorRuns.get(runId)) || {
+                    prompt: 'Please answer the latest user message from Cursor Chat.', model: 'gpt-6.1-sol', at: Date.now()
+                };
+                if (runId) cursorRuns.delete(runId);
                 const localPort = server.address()?.port;
                 if (!localPort) throw new ProxyError('本地代理尚未监听端口。', 'proxy_not_ready', 503);
                 const localResult = await undiciFetch(`http://127.0.0.1:${localPort}/v1/responses`, {
