@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, dialog, clipboard,
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const { windowIcon, installDesktopShell } = require('./desktop-shell.cjs');
-if (process.platform === 'win32') app.setAppUserModelId('org.codexauthswitcher.app');
+if (process.platform === 'win32') app.setAppUserModelId('com.sherwin.codex-auth-switcher.electron');
 
 let window;
 let tray;
@@ -81,6 +81,18 @@ else {
                 return { ok: true, result };
             } catch (error) { return { ok: false, error: error.message, code: error.code || 'proxy_unavailable' }; }
         });
+        ipcMain.handle('cursor-configure', async (_event, action) => {
+            if (networkBusy) throw new Error('网络设置正在更新。');
+            if (!['enable', 'disable'].includes(action)) throw new Error('Unsupported Cursor action.');
+            const byok = await import('../scripts/cursor-byok-sidecar.mjs');
+            const currentState = await storage.readJSON(statePath);
+            if (action === 'enable') {
+                const result = await byok.startCursorByok({ baseUrl: `http://127.0.0.1:${currentState.port}`,
+                    key: currentState.key, model: 'gpt-6.1-sol' });
+                return { ...result, takeover: 'native-cursor-protocol', baseUrl: result.proxyUrl };
+            }
+            return byok.stopCursorByok({ restore: true });
+        });
         ipcMain.handle('choose-directory', async () => {
             if (networkBusy) throw new Error('网络设置正在更新。');
             const choice = await dialog.showOpenDialog(window, { title: 'Choose authorization backup directory', properties: ['openDirectory'] });
@@ -152,8 +164,12 @@ app.on('before-quit', event => {
     event.preventDefault();
     // Repeated quit events share shutdown; finish pending statistics writes before exiting.
     if (shutdownPromise) return;
-    const refreshStop = typeof refreshService === 'undefined' ? undefined : refreshService?.stop();
-    shutdownPromise = Promise.resolve(refreshStop).then(() => gateway?.close()).catch(async () => {
+    const refreshStop = refreshService?.stop?.();
+    shutdownPromise = Promise.resolve(refreshStop).then(async () => {
+        await gateway?.close();
+        const byok = await import('../scripts/cursor-byok-sidecar.mjs');
+        await byok.stopCursorByok({ restore: true });
+    }).catch(async () => {
         await gateway?.notifyError?.({ code: 'proxy_shutdown_failed' });
     }).finally(() => {
         quitting = true;

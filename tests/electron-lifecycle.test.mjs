@@ -14,7 +14,7 @@ test('window close quits without confirmation and repeated quit events wait for 
     const context = vm.createContext({ window: { isDestroyed: () => true },
         app: { on: (name, handler) => handlers.set(name, handler), quit: () => { quitCalls++; } },
         gateway: { close: () => { closeCalls++; return closing; } } });
-    vm.runInContext('let quitting = false; let shutdownPromise;\n' + source.slice(source.indexOf("app.on('activate'")), context);
+    vm.runInContext('let quitting = false; let shutdownPromise; let refreshService;\n' + source.slice(source.indexOf("app.on('activate'")), context);
     assert.ok(!source.includes("window.on('close'"));
     assert.ok(!source.includes('showMessageBoxSync'));
     handlers.get('window-all-closed')();

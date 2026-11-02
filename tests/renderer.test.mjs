@@ -84,11 +84,23 @@ test('key connection distinguishes written settings, verified traffic and repair
 test('proxy and Codex cards share status rendering and use independent switch actions', async () => {
     const source = await readFile(new URL('../electron/renderer.js', import.meta.url), 'utf8');
     const renderer = source.slice(source.indexOf('function renderAccounts('), source.indexOf('async function updateHealth('));
-    const element = (tag, className = '', text = '') => ({ tag, className, text, dataset: {}, children: [],
-        append(...children) { this.children.push(...children); }, replaceChildren(...children) { this.children = children; },
-        addEventListener(_name, handler) { this.click = handler; } });
+    const element = (tag, className = '', text = '') => {
+        const node = { tag, className, text, dataset: {}, attributes: {}, children: [], draggable: false,
+            classList: { add() {}, remove() {}, toggle() {} },
+            append(...children) { this.children.push(...children); children.forEach(child => { Object.defineProperty(child, 'parentElement', { value: this, writable: true, configurable: true }); }); },
+            prepend(...children) { this.children.unshift(...children); children.forEach(child => { Object.defineProperty(child, 'parentElement', { value: this, writable: true, configurable: true }); }); },
+            replaceChildren(...children) { this.children = children; children.forEach(child => { Object.defineProperty(child, 'parentElement', { value: this, writable: true, configurable: true }); }); },
+            insertBefore(child, before) { const index = before ? this.children.indexOf(before) : -1; if (child.parentElement) child.parentElement.children = child.parentElement.children.filter(item => item !== child); child.parentElement = this; this.children.splice(index < 0 ? this.children.length : index, 0, child); },
+            remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(item => item !== this); },
+            setAttribute(name, value) { this.attributes[name] = value; },
+            addEventListener(name, handler) { this[name] = handler; },
+            querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
+            querySelectorAll(selector) { return this.children.flatMap(child => [child, ...child.querySelectorAll?.(selector) || []]).filter(child => selector === '.account-header-identity' ? child.className === selector.slice(1) : selector === '.account-card' ? child.className.includes('account-card') : selector === '.priority-dropzone' ? child.className.includes('priority-dropzone') : selector === '.account-card:not(.dragging)' ? child.className.includes('account-card') && !child.className.includes('dragging') : false); },
+            contains(node) { return this === node || this.children.some(child => child === node || child.contains?.(node)); } };
+        return node;
+    };
     const actions = [];
-    const context = vm.createContext({ element, items: [{ name: 'a.json', modifiedAt: 'saved', tokenExpiresAt: 123 }],
+    const context = vm.createContext({ element, tr: value => value, items: [{ name: 'a.json', modifiedAt: 'saved', tokenExpiresAt: 123 }],
         usage: new Map([['a.json', { data: { plan_type: 'plus', rate_limit: {}, rate_limit_reset_credits: {} }, error: 'expired' }]]),
         health: { selected_file: 'a.json', codex_mode: 'auth_file', codex_auth_file: 'b.json' }, busy: false,
         priorityData: { priority: { enabled: true, disabled: [] }, entries: [{ name: 'a.json', enabled: true }] },
@@ -103,6 +115,10 @@ test('proxy and Codex cards share status rendering and use independent switch ac
     context.renderAccounts(direct, true);
     const proxyCard = proxy.children[1].children[1].children[0];
     const directCard = direct.children[0];
+    assert.equal(proxyCard.draggable, false);
+    assert.equal(proxyCard.children[0].children[0].children[0].className, 'priority-drag-handle');
+    assert.equal(proxyCard.children[0].children[0].children[0].draggable, true);
+    assert.equal(directCard.children[0].children[0].children[0].children[0].className, 'account-name');
     assert.equal(JSON.stringify(proxyCard.children[1]), JSON.stringify(directCard.children[1]));
     assert.equal(directCard.children[2].text, 'expired');
     assert.equal(proxyCard.children[0].children[1].children[1].disabled, true);

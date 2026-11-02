@@ -16,6 +16,7 @@
   <nav id="workspace-tabs" class="workspace-tabs" role="tablist" aria-label="配置管理">
     <button id="tab-proxy" role="tab" aria-selected="true" aria-controls="proxy-page" tabindex="0">本地代理</button>
     <button id="tab-codex" role="tab" aria-selected="false" aria-controls="codex-page" tabindex="-1">Codex 配置</button>
+    <button id="tab-cursor" role="tab" aria-selected="false" aria-controls="cursor-page" tabindex="-1">Cursor 配置</button>
   </nav>
   <section id="proxy-page" role="tabpanel" aria-labelledby="tab-proxy">
   <div class="proxy-settings">
@@ -29,7 +30,7 @@
     <div class="network-controls">
     <label><input id="lan-enabled" type="checkbox"> 允许局域网访问</label>
     <label>端口 <input id="proxy-port" type="number" min="1024" max="65535" value="18888" step="1"></label>
-    <button id="apply-network">应用网络设置</button>
+    <button id="apply-network">应用网络设置</button><button id="test-local-service">测试本地服务</button>
     <span id="network-status" class="muted" role="status"></span>
     </div>
     <p id="network-addresses" class="muted"></p>
@@ -73,6 +74,15 @@
       <div id="mode-empty" class="mode-content"><h3>空 · 不管理 Codex 配置</h3><p class="muted">首次默认选项。不清除、不改写 config.toml 或 auth.json；Codex 继续使用它自己的现有配置。本地代理仍独立运行。</p><button id="unconfigure">设为空（保留现有配置）</button></div>
       <div id="mode-key" class="mode-content" hidden><h3>Key · 连接本地代理</h3><p class="muted">自动配置 Base URL 和本地 Key，使用「本地代理」Tab 中的出口授权文件。</p><button id="configure" class="primary">应用 Key 模式</button></div>
       <div id="mode-auth-file" hidden><div class="list-heading codex-account-heading"><h3>Codex 授权文件</h3><button id="codex-directory" class="text-button">选择授权目录</button></div><p class="muted">点击卡片直接覆盖 Codex 授权文件，不刷新令牌、不校验额度，也不改变代理出口。应用后需重启 Codex；文件失效时仍需重新登录。</p><p id="codex-directory-path" class="muted path"></p><div id="codex-accounts"><p class="muted">读取账号…</p></div></div>
+    </section>
+  </section>
+  <section id="cursor-page" role="tabpanel" aria-labelledby="tab-cursor" hidden>
+    <section class="card codex-panel" aria-labelledby="cursor-title">
+      <div class="list-heading"><h2 id="cursor-title">Cursor 代码联想与 Tab</h2></div>
+      <p class="notice">通过内置的本地 CA、HTTPS MITM 和 Cursor 协议适配接管 Cursor Chat 与 Tab，复用当前出口账号的额度与自动切换。</p>
+      <p class="muted">首次启用会初始化内置本地 CA；系统可能弹出证书信任授权。启用前请完全退出 Cursor，启用后重新打开 Cursor。关闭时会恢复 Cursor 原有代理设置。</p>
+      <div class="actions"><button id="cursor-enable" class="primary">初始化并接管 Cursor</button><button id="cursor-disable">停止接管并恢复</button></div>
+      <p id="cursor-status" class="muted" role="status"></p>
     </section>
   </section>
   </div>

@@ -12,6 +12,8 @@
         '代理出口账号': 'Proxy accounts', '添加自定义 API 账号': 'Add custom API account',
         '切换只影响代理的新请求，不修改 Codex 直连授权；进行中的请求继续使用原账号。': 'Switching affects new proxy requests only; direct Codex auth is unchanged and in-flight requests keep the current account.',
         '读取账号…': 'Loading accounts…', '拖动账号调整优先级；上方参与自动切换，下方不参与。': 'Drag accounts to set priority; the upper group participates in automatic switching.',
+        '拖动账号头部的小方块调整优先级；松手时会放到预览线位置。上方参与自动切换，下方不参与。': 'Drag the small square in an account header to set priority; release over the preview line. The upper group participates in automatic switching.',
+        '拖动以调整账号优先级': 'Drag to adjust account priority',
         '参与自动切换': 'Included in automatic switching', '不参与自动切换': 'Excluded from automatic switching',
         '暂无账号，拖动账号到这里以参与自动切换。': 'No accounts. Drag accounts here to include them.',
         '暂无账号，拖动账号到这里以退出自动切换。': 'No accounts. Drag accounts here to exclude them.',

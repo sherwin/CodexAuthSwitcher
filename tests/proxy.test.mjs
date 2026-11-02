@@ -283,6 +283,24 @@ test('ordinary permission 401 does not rotate a valid OAuth token', async t => {
     assert.equal(count, 1);
 });
 
+test('failed refresh rotates to the next prioritized account', async t => {
+    const f = await gatewayFixture(t, async (url, options) => {
+        if (String(url).includes('/oauth/token'))
+            return Response.json({ error: { code: 'refresh_token_reused' } }, { status: 401 });
+        const account = options.headers['ChatGPT-Account-Id'];
+        if (account === 'a') return Response.json({ error: { code: 'token_expired' } }, { status: 401 });
+        return Response.json({ id: 'resp-b', output: [{ content: [{ type: 'output_text', text: 'SWITCHED' }] }] });
+    });
+    const state = await readJSON(path.join(f.directory, 'proxy.json'));
+    state.enabled = true;
+    state.priority = { enabled: true, max_errors: 10, order: ['a.json', 'b.json'], disabled: [], include_custom: false };
+    await writeJSON(path.join(f.directory, 'proxy.json'), state);
+    const response = await f.call('/v1/responses', { model: 'test', input: [] });
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), /SWITCHED/);
+    assert.equal((await readJSON(path.join(f.directory, 'proxy.json'))).selected_file, 'b.json');
+});
+
 test('auth file mode preserves unrelated edits, backs up credentials, and returns to key mode', async t => {
     const f = await fixture(t);
     const config = path.join(f.directory, 'config.toml');

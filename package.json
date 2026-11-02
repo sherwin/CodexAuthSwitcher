@@ -3,10 +3,12 @@
   "version": "1.1.0",
   "private": true,
   "description": "Cross-platform Codex account manager and local Responses proxy",
-  "author": "Codex Auth Switcher contributors",
+  "author": "sherwin",
   "type": "module",
   "main": "electron/main.cjs",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "electron .",
     "proxy": "node proxy/server.mjs serve",
@@ -22,8 +24,10 @@
     "dist:win": "electron-builder --win --x64"
   },
   "dependencies": {
+    "@electron/asar": "^3.4.1",
     "@iarna/toml": "2.2.5",
     "proper-lockfile": "4.1.2",
+    "selfsigned": "^2.4.1",
     "sql.js": "^1.15.1",
     "undici": "6.29.0"
   },
@@ -32,13 +36,35 @@
     "electron-builder": "^26.0.12"
   },
   "build": {
-    "appId": "org.codexauthswitcher.app",
+    "appId": "com.sherwin.codex-auth-switcher.electron",
     "productName": "Codex Auth Switcher",
-    "files": ["electron/**/*", "proxy/**/*", "package.json"],
-    "mac": { "target": ["dmg", "zip"], "category": "public.app-category.developer-tools", "icon": "electron/assets/icon.icns" },
-    "win": { "target": ["nsis", "zip"], "icon": "electron/assets/icon.ico" },
-    "linux": { "target": ["AppImage", "deb"], "icon": "electron/assets/icon.png" },
-    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true, "createStartMenuShortcut": true, "shortcutName": "Codex Auth Switcher" }
+    "files": [
+      "electron/**/*",
+      "proxy/**/*",
+      "scripts/cursor-local.mjs",
+      "scripts/cursor-byok-sidecar.mjs",
+      "package.json"
+    ],
+    "mac": {
+      "target": "dir",
+      "category": "public.app-category.developer-tools",
+      "icon": "electron/assets/icon.icns"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "electron/assets/icon.ico"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "electron/assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Codex Auth Switcher"
+    }
   }
 }

@@ -123,6 +123,7 @@ function selectWorkspace(tab) {
     }
     document.querySelector('#proxy-page').hidden = tab !== 'proxy';
     document.querySelector('#codex-page').hidden = tab !== 'codex';
+    document.querySelector('#cursor-page').hidden = tab !== 'cursor';
     document.querySelector('#open-statistics').hidden = tab !== 'proxy';
 }
 
@@ -333,7 +334,9 @@ function renderAccounts(target, direct) {
         refreshButton.addEventListener('click', () => refreshAccount(item.name));
         const actions = element('div', 'actions');
         actions.append(refreshButton, select);
-        header.append(label, actions);
+        const identity = element('div', 'account-header-identity');
+        identity.append(label);
+        header.append(identity, actions);
         if (item.provider === 'deepseek') {
             label.append(element('span', 'plan', '自定义 API · Key'));
             const edit = element('button', '', '编辑配置');
@@ -379,7 +382,7 @@ function renderAccounts(target, direct) {
     cards.sort((a, b) => (order.get(a.dataset.name) ?? 9999) - (order.get(b.dataset.name) ?? 9999));
     const status = element('span', 'muted');
     const heading = element('div', 'list-heading priority-inline-heading');
-    heading.append(element('p', 'muted', '拖动账号调整优先级；上方参与自动切换，下方不参与。'), status);
+    heading.append(element('p', 'muted', '拖动账号头部的小方块调整优先级；松手时会放到预览线位置。上方参与自动切换，下方不参与。'), status);
     const enabledZone = element('div', 'priority-inline-zone');
     const disabledZone = element('div', 'priority-inline-zone');
     enabledZone.append(element('h3', '', '参与自动切换')); disabledZone.append(element('h3', '', '不参与自动切换'));
@@ -388,12 +391,66 @@ function renderAccounts(target, direct) {
     disabledDrop.dataset.emptyHint = '暂无账号，拖动账号到这里以退出自动切换。';
     enabledZone.append(enabledDrop); disabledZone.append(disabledDrop);
     for (const card of cards) (enabledNames.has(card.dataset.name) ? enabledDrop : disabledDrop).append(card);
-    const wire = (zone, other) => {
-        zone.addEventListener('dragover', event => { event.preventDefault(); zone.classList.add('drag-over'); });
-        zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
-        zone.addEventListener('drop', event => { event.preventDefault(); zone.classList.remove('drag-over'); const name = event.dataTransfer.getData('text/plain'); const card = [...target.querySelectorAll('.account-card')].find(item => item.dataset.name === name); if (!card) return; const before = event.target.closest('.account-card'); if (before && before.parentElement === zone && before !== card) zone.insertBefore(card, before); else zone.append(card); savePriorityBoard(enabledDrop, disabledDrop, status); });
+    const dragState = { card: null, preview: null };
+    const clearDragPreview = () => {
+        dragState.preview?.remove();
+        dragState.preview = null;
+        target.querySelectorAll('.priority-dropzone').forEach(zone => zone.classList.remove('drag-over'));
     };
-    for (const card of cards) { card.addEventListener('dragstart', event => { event.dataTransfer.setData('text/plain', card.dataset.name); card.classList.add('dragging'); }); card.addEventListener('dragend', () => card.classList.remove('dragging')); }
+    const cardsIn = (zone) => [...zone.querySelectorAll('.account-card')].filter(card => card !== dragState.card);
+    const updateDragPreview = (zone, event) => {
+        if (!dragState.card) return;
+        const preview = dragState.preview || element('div', 'priority-drop-preview');
+        preview.setAttribute('aria-hidden', 'true');
+        dragState.preview = preview;
+        const before = cardsIn(zone).find(card => event.clientY < card.getBoundingClientRect().top + card.offsetHeight / 2);
+        zone.insertBefore(preview, before || null);
+        zone.classList.add('drag-over');
+    };
+    const wire = (zone) => {
+        zone.addEventListener('dragover', event => {
+            if (!dragState.card) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+            updateDragPreview(zone, event);
+        });
+        zone.addEventListener('dragleave', event => {
+            if (event.relatedTarget && zone.contains(event.relatedTarget)) return;
+            zone.classList.remove('drag-over');
+        });
+        zone.addEventListener('drop', event => {
+            event.preventDefault();
+            if (!dragState.card) return;
+            updateDragPreview(zone, event);
+            const card = dragState.card;
+            if (dragState.preview?.parentElement === zone) zone.insertBefore(card, dragState.preview);
+            else zone.append(card);
+            clearDragPreview();
+            savePriorityBoard(enabledDrop, disabledDrop, status);
+        });
+    };
+    for (const card of cards) {
+        card.draggable = false;
+        const identity = card.querySelector('.account-header-identity');
+        const dragHandle = element('button', 'priority-drag-handle', '⋮⋮');
+        dragHandle.type = 'button';
+        dragHandle.draggable = true;
+        dragHandle.title = tr('拖动以调整账号优先级');
+        dragHandle.setAttribute('aria-label', dragHandle.title);
+        dragHandle.addEventListener('click', event => event.preventDefault());
+        dragHandle.addEventListener('dragstart', event => {
+            dragState.card = card;
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', card.dataset.name);
+            card.classList.add('dragging');
+        });
+        dragHandle.addEventListener('dragend', () => {
+            card.classList.remove('dragging');
+            dragState.card = null;
+            clearDragPreview();
+        });
+        identity?.prepend(dragHandle);
+    }
     wire(enabledDrop, disabledDrop); wire(disabledDrop, enabledDrop);
     target.replaceChildren(heading, enabledZone, disabledZone);
 }
@@ -551,12 +608,12 @@ async function switchAccount(name) {
 document.querySelector('#refresh').addEventListener('click', refresh);
 document.querySelector('#workspace-tabs').addEventListener('click', event => {
     const button = event.target.closest('button[role=tab]');
-    if (button) selectWorkspace(button.id === 'tab-proxy' ? 'proxy' : 'codex');
+    if (button) selectWorkspace(button.id === 'tab-proxy' ? 'proxy' : button.id === 'tab-cursor' ? 'cursor' : 'codex');
 });
 document.querySelector('#workspace-tabs').addEventListener('keydown', event => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
-    const tab = event.key === 'Home' ? 'proxy' : event.key === 'End' ? 'codex' : event.target.id === 'tab-proxy' ? 'codex' : 'proxy';
+    const tab = event.key === 'Home' ? 'proxy' : event.key === 'End' ? 'cursor' : event.target.id === 'tab-proxy' ? 'codex' : event.target.id === 'tab-codex' ? 'cursor' : 'proxy';
     selectWorkspace(tab);
     document.querySelector('#tab-' + tab).focus();
 });
@@ -566,6 +623,22 @@ document.querySelector('#codex-modes').addEventListener('click', event => {
     codexMode = button.dataset.mode;
     renderCodexMode();
 });
+async function configureCursor(action) {
+    const status = document.querySelector('#cursor-status');
+    const enable = document.querySelector('#cursor-enable');
+    const disable = document.querySelector('#cursor-disable');
+    enable.disabled = disable.disabled = true;
+    status.textContent = action === 'enable' ? '正在备份并配置 Cursor…' : '正在恢复 Cursor 官方补全…';
+    try {
+        const result = await api.cursorConfigure(action);
+        status.textContent = action === 'enable'
+            ? `已启动内置 Cursor 接管：${result.baseUrl || '本地 MITM'}（CA：${result.ca?.state === 'ready' ? '已信任' : '待系统授权'}）。请重新打开 Cursor 读取代理。`
+            : '已停止内置 Cursor 接管并恢复 Cursor 原有设置。';
+    } catch (error) { status.textContent = `操作失败：${error.message}`; }
+    finally { enable.disabled = disable.disabled = false; }
+}
+document.querySelector('#cursor-enable').addEventListener('click', () => configureCursor('enable'));
+document.querySelector('#cursor-disable').addEventListener('click', () => configureCursor('disable'));
 document.querySelector('#unconfigure').addEventListener('click', async () => {
     busy = true;
     renderCodexMode();
@@ -639,6 +712,19 @@ document.querySelector('#apply-network').addEventListener('click', async () => {
     } catch (error) { status.textContent = error.message; }
     finally { networkBusy = false; button.disabled = false; await updateHealth(); }
 });
+document.querySelector('#test-local-service').addEventListener('click', async () => {
+    const button = document.querySelector('#test-local-service');
+    const status = document.querySelector('#network-status');
+    button.disabled = true;
+    status.textContent = '正在测试本地服务…';
+    try {
+        const health = await call('status');
+        if (!health?.proxy_running) throw new Error('本地服务未运行。');
+        status.textContent = `本地服务正常（${health.port || '未知端口'}）`;
+    } catch (error) { status.textContent = `本地服务异常：${error.message}`; }
+    finally { button.disabled = false; }
+});
+
 setInterval(updateHealth, 3000);
 document.querySelector('#open-statistics').addEventListener('click', () => {
     statisticsVisible = true;

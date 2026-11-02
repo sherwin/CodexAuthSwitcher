@@ -18,9 +18,16 @@ import { eventObserver } from './sse.mjs';
 import { TokenStatistics, usageAccount, normalizedUsage } from './statistics.mjs';
 import { querySubscription } from './subscription.mjs';
 import { createRequestLog } from './request-log.mjs';
+import { decodeConnectEnvelopes, decodeStreamCppRequest, encodeStreamCppResponse,
+    encodeAvailableModelsResponse, connectEnvelope, cursorPrompt, extractCursorChatPrompt, extractCursorChatModel,
+    encodeStreamChatResponse, encodeCursorGetEmailResponse, encodeCursorSessionTokenResponse,
+    encodeCursorBoolResponse, decodeCursorBidiAppend, decodeCursorRunSseRequest,
+    encodeCursorAgentText, encodeCursorAgentTurnEnded } from './cursor-connect.mjs';
 
 const maxBody = 32 * 1024 * 1024;
-const retryableAuthCodes = new Set(['token_expired', 'invalid_token', 'token_invalidated']);
+const retryableAuthCodes = new Set(['token_expired', 'invalid_token', 'token_invalidated',
+    'invalid_grant', 'refresh_token_reused', 'refresh_token_expired', 'refresh_token_invalidated']);
+const maxCapacityRetries = 5;
 function retryableStreamError(error) { return /network|disconnect|socket|body|fetch|transport/i.test(String(error?.message || error)); }
 async function transientResponse(response) {
     if (!response || response.ok || ![429, 500, 502, 503, 504].includes(response.status)) return false;
@@ -43,8 +50,22 @@ async function bufferStream(body) {
 function streamCompleted(buffer) { const text = buffer.toString('utf8'); return /response\.completed/.test(text) && /"status"\s*:\s*"completed"/.test(text); }
 function upstreamErrorDetail(error) { return error?.cause?.message || error?.message || String(error) || 'The upstream connection failed.'; }
 
+function windowsSystemProxy() {
+    if (process.platform !== 'win32') return '';
+    try {
+        const output = execFileSync('reg.exe', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'], { encoding: 'utf8', timeout: 2000 });
+        if (!/ProxyEnable\s+REG_DWORD\s+0x1/i.test(output)) return '';
+        const match = output.match(/ProxyServer\s+REG_SZ\s+([^\r\n]+)/i);
+        const value = match?.[1]?.trim() || '';
+        if (!value) return '';
+        const httpProxy = value.split(';').find(item => /^https?=\s*/i.test(item))?.replace(/^https?=\s*/i, '') || value;
+        return /^https?:\/\//i.test(httpProxy) ? httpProxy : `http://${httpProxy}`;
+    } catch { return ''; }
+}
+
 export function upstreamFetch() {
     let proxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY;
+    if (!proxy) proxy = windowsSystemProxy();
     if (!proxy && process.platform === 'darwin') {
         try {
             const settings = execFileSync('/usr/sbin/scutil', ['--proxy'], { encoding: 'utf8', timeout: 2000 });
@@ -77,11 +98,45 @@ async function bodyJSON(request) {
     } catch { const error = new ProxyError('Expected a JSON object.', 'invalid_body', 400); error.requestBody = Buffer.concat(chunks).toString('utf8'); throw error; }
 }
 
+async function rawBody(request) {
+    let size = 0;
+    const chunks = [];
+    for await (const chunk of request) {
+        size += chunk.length;
+        if (size > maxBody) throw new ProxyError('Request body too large.', 'body_too_large', 413);
+        chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+}
+
+function responseText(value) {
+    const output = Array.isArray(value?.output) ? value.output : [];
+    return output.flatMap(item => Array.isArray(item?.content) ? item.content : [])
+        .filter(item => item?.type === 'output_text' && typeof item.text === 'string')
+        .map(item => item.text).join('');
+}
+
 function sendJSON(response, status, value, extraHeaders = {}) {
     const body = JSON.stringify(value);
     response.writeHead(status, { ...extraHeaders, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body),
-        'Cache-Control': 'no-store' });
+        'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Requested-With' });
     response.end(body);
+}
+
+function cursorProtoHeaders(request, { stream = false } = {}) {
+    // Cursor's Connect transport validates the response against the RPC kind,
+    // rather than echoing the request content type. Unary methods such as
+    // AvailableModels and DashboardService require application/proto;
+    // StreamCpp uses the length-prefixed application/connect+proto format.
+    const requested = String(request.headers['content-type'] || '').toLowerCase();
+    const contentType = stream ? (requested.includes('grpc-web') ? 'application/grpc-web+proto' :
+        requested.includes('grpc') ? 'application/grpc+proto' : 'application/connect+proto') : 'application/proto';
+    return { 'Content-Type': contentType, 'Cache-Control': 'no-store',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Requested-With',
+        ...(contentType.includes('grpc') ? { 'grpc-encoding': 'identity' } :
+            contentType.includes('connect') ? { 'Connect-Protocol-Version': '1' } : {}) };
 }
 
 function authenticated(request, key) {
@@ -105,6 +160,10 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
     let configurationGeneration = 0;
     const notified = new Map();
     const recentErrors = new Map();
+    // Modern Cursor keeps request metadata in BidiAppend and consumes the
+    // generated answer through a later RunSSE call with the same request id.
+    // The entry is deliberately short-lived and local to this gateway process.
+    const cursorRuns = new Map();
 
     async function report(error, name) {
         metrics.last_error = { code: error.code || 'upstream_unavailable', account: name || null, at: new Date().toISOString() };
@@ -190,25 +249,43 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
         let attemptCount = 0;
         let shouldRecord = false;
         const responseChunks = [];
-        let responseBytes = 0;
         const originalWrite = response.write.bind(response);
         const originalEnd = response.end.bind(response);
-        const captureResponse = chunk => {
-            if (!chunk || responseBytes >= maxBody) return;
-            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-            const remaining = maxBody - responseBytes;
-            responseChunks.push(buffer.subarray(0, remaining));
-            responseBytes += Math.min(buffer.length, remaining);
-        };
-        response.write = (chunk, ...args) => { captureResponse(chunk); return originalWrite(chunk, ...args); };
-        response.end = (chunk, ...args) => { captureResponse(chunk); return originalEnd(chunk, ...args); };
+        response.write = (chunk, ...args) => { if (chunk && responseChunks.reduce((n, b) => n + b.length, 0) < maxBody) responseChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)); return originalWrite(chunk, ...args); };
+        response.end = (chunk, ...args) => { if (chunk && responseChunks.reduce((n, b) => n + b.length, 0) < maxBody) responseChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)); return originalEnd(chunk, ...args); };
         try {
-            if (!authenticated(request, initial.key)) {
+            const requestedPath = new URL(request.url, 'http://127.0.0.1').pathname;
+            const cursorConnect = request.method === 'POST' &&
+                /^\/aiserver\.v1\.AiService\/StreamCpp$/.test(requestedPath);
+            const cursorChat = request.method === 'POST' &&
+                /^\/aiserver\.v1\.AiService\/StreamChat(?:Web|TryReallyHard)?$/.test(requestedPath);
+            const cursorBidi = request.method === 'POST' &&
+                requestedPath === '/aiserver.v1.BidiService/BidiAppend';
+            const cursorRunSse = request.method === 'POST' &&
+                requestedPath === '/agent.v1.AgentService/RunSSE';
+            const cursorCppConfig = request.method === 'POST' &&
+                requestedPath === '/aiserver.v1.AiService/CppConfig';
+            const cursorDashboard = request.method === 'POST' &&
+                /^\/aiserver\.v1\.(DashboardService|NetworkService)\/.+/.test(requestedPath);
+            const cursorAvailableModels = request.method === 'POST' &&
+                /^\/aiserver\.v1\.(AiService|CppService)\/AvailableModels$/.test(requestedPath);
+            const cursorAuthRpc = request.method === 'POST' &&
+                /^\/aiserver\.v1\.AuthService\/(GetEmail|MarkPrivacy|GetSessionToken|CheckSessionToken|EmailValid|GetCustomerId)$/.test(requestedPath);
+            const cursorAuth = requestedPath.startsWith('/auth/');
+            const local = isLoopback(request.socket.remoteAddress);
+            if (request.method === 'OPTIONS' && local) {
+                response.writeHead(204, { 'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Requested-With' });
+                response.end();
+                return;
+            }
+            if (!authenticated(request, initial.key) && !(isLoopback(request.socket.remoteAddress) &&
+                (cursorConnect || cursorChat || cursorBidi || cursorRunSse || cursorCppConfig || cursorDashboard || cursorAvailableModels || cursorAuthRpc || cursorAuth))) {
                 sendJSON(response, 401, { error: { code: 'local_key_required', message: 'Local gateway authentication required.' } });
                 return;
             }
             const url = new URL(request.url, 'http://127.0.0.1');
-            const local = isLoopback(request.socket.remoteAddress);
             if (!local && (!initial.lan_enabled || !isPrivateAddress(request.socket.remoteAddress))) {
                 throw new ProxyError('Only local network clients are allowed.', 'lan_access_denied', 403);
             }
@@ -217,6 +294,212 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             }
             const state = await readJSON(statePath);
             if (url.search) throw new ProxyError('Query parameters are unsupported.', 'unsupported_route', 404);
+            // Cursor performs these account and entitlement probes before it
+            // opens the completion stream. They must terminate locally so a
+            // fake local session is not rejected by api2/api3. Connect's
+            // length-prefixed empty protobuf is valid for the unary replies;
+            // Cursor treats omitted optional fields as the local free/ultra
+            // defaults and proceeds to the configured completion endpoint.
+            if (cursorDashboard) {
+                const payload = Buffer.alloc(0);
+                response.writeHead(200, cursorProtoHeaders(request));
+                response.end(payload);
+                return;
+            }
+            if (cursorAvailableModels) {
+                let modelNames = [];
+                const selected = state.selected_file ? await credentials.get(accountPath(state, state.selected_file)).catch(() => null) : null;
+                if (selected) {
+                    try {
+                        const target = upstream(selected, 'models');
+                        const modelResponse = await fetchUpstream(target.url, { headers: { Authorization: `Bearer ${target.token}` },
+                            redirect: 'manual', signal: AbortSignal.timeout(20000) });
+                        if (modelResponse.ok) {
+                            const catalog = await modelResponse.json();
+                            const entries = Array.isArray(catalog) ? catalog : catalog.data || catalog.models || [];
+                            modelNames = entries.map(item => typeof item === 'string' ? item : item?.id || item?.slug)
+                                .filter(name => typeof name === 'string');
+                        }
+                    } catch { /* Keep the local fallback when a provider has no model endpoint. */ }
+                }
+                const payload = encodeAvailableModelsResponse(modelNames);
+                response.writeHead(200, cursorProtoHeaders(request));
+                response.end(payload);
+                return;
+            }
+            if (cursorCppConfig) {
+                // CppConfig is a unary RPC. Unlike StreamCpp it carries a raw
+                // protobuf message and must receive application/proto without
+                // a Connect envelope.
+                await rawBody(request);
+                const config = Buffer.concat([Buffer.from([0x08, 0x01]), Buffer.from([0x10, 0x01]),
+                    Buffer.from([0x28, 0x01]), Buffer.from([0x30, 0x01])]);
+                response.writeHead(200, cursorProtoHeaders(request));
+                response.end(config);
+                return;
+            }
+            if (cursorAuth) {
+                if (request.method === 'GET' && /\/auth\/(full_stripe_profile|stripe_profile)$/.test(requestedPath)) {
+                    sendJSON(response, 200, { membershipType: 'ultra', subscriptionStatus: 'active',
+                        hasValidPaymentMethod: true, email: 'cursor@ai.com' });
+                    return;
+                }
+                if (requestedPath === '/auth/has_valid_payment_method') {
+                    sendJSON(response, 200, { hasValidPaymentMethod: true });
+                    return;
+                }
+                if (requestedPath === '/auth/poll') {
+                    sendJSON(response, 200, { authenticated: true, status: 'active', email: 'cursor@ai.com' });
+                    return;
+                }
+            }
+            if (cursorAuthRpc) {
+                // Connect unary responses are raw protobuf messages.  The
+                // injected local session is deliberately synthetic and is
+                // accepted only by this local gateway.
+                const authMethod = requestedPath.split('/').pop();
+                await rawBody(request);
+                let payload = Buffer.alloc(0);
+                if (authMethod === 'GetEmail') payload = encodeCursorGetEmailResponse();
+                else if (authMethod === 'GetSessionToken') payload = encodeCursorSessionTokenResponse(initial.key);
+                else if (authMethod === 'CheckSessionToken' || authMethod === 'EmailValid') payload = encodeCursorBoolResponse(true);
+                else if (authMethod === 'GetCustomerId') payload = encodeCursorSessionTokenResponse('local-customer');
+                response.writeHead(200, cursorProtoHeaders(request));
+                response.end(payload);
+                return;
+            }
+            if (cursorBidi) {
+                const append = decodeCursorBidiAppend(await rawBody(request));
+                if (!append.requestId || !append.payload.length)
+                    throw new ProxyError('Cursor BidiAppend 请求缺少 request_id 或消息体。', 'invalid_cursor_request', 400);
+                const prompt = extractCursorChatPrompt(append.payload) ||
+                    'Please answer the latest user message from Cursor Chat.';
+                const model = extractCursorChatModel(append.payload) || 'gpt-6.1-sol';
+                cursorRuns.set(append.requestId, { prompt, model, at: Date.now() });
+                for (const [id, value] of cursorRuns) if (Date.now() - value.at > 10 * 60 * 1000) cursorRuns.delete(id);
+                response.writeHead(200, cursorProtoHeaders(request));
+                response.end(Buffer.alloc(0));
+                return;
+            }
+            if (cursorRunSse) {
+                const run = decodeCursorRunSseRequest(await rawBody(request));
+                const pending = run.requestId && cursorRuns.get(run.requestId);
+                if (!pending) throw new ProxyError('找不到 Cursor BidiAppend 请求。', 'invalid_cursor_request', 400);
+                cursorRuns.delete(run.requestId);
+                const localPort = server.address()?.port;
+                if (!localPort) throw new ProxyError('本地代理尚未监听端口。', 'proxy_not_ready', 503);
+                const localResult = await undiciFetch(`http://127.0.0.1:${localPort}/v1/responses`, {
+                    method: 'POST', headers: { Authorization: `Bearer ${initial.key}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: pending.model, input: [{ role: 'user', content: [{ type: 'input_text', text: pending.prompt }] }], stream: false }),
+                    signal: AbortSignal.timeout(600000) });
+                if (!localResult.ok) {
+                    const message = await localResult.text().catch(() => 'Cursor tab completion failed.');
+                    throw new ProxyError(message.slice(0, 500), `cursor_upstream_${localResult.status}`, localResult.status);
+                }
+                const completion = responseText(await localResult.json());
+                const payload = Buffer.concat([
+                    connectEnvelope(encodeCursorAgentText(completion)),
+                    connectEnvelope(encodeCursorAgentTurnEnded()),
+                    connectEnvelope(Buffer.from('{"error":null}', 'utf8'), 0x02)
+                ]);
+                response.writeHead(200, { ...cursorProtoHeaders(request, { stream: true }), 'Content-Type': 'text/event-stream' });
+                response.end(payload);
+                return;
+            }
+            if (cursorConnect) {
+                const body = await rawBody(request);
+                let envelopes = [];
+                try { envelopes = decodeConnectEnvelopes(body); } catch { /* raw protobuf is also valid */ }
+                // Cursor versions differ here: some send one Connect frame,
+                // while newer builds send raw protobuf or include metadata
+                // frames before the request. Always select the first data
+                // frame and fall back to the raw body instead of returning a
+                // connection-level 400 to the editor.
+                const input = envelopes.find(item => item.flags === 0)?.message || body;
+                let cursor;
+                try { cursor = decodeStreamCppRequest(input); }
+                catch { cursor = { model: '', path: '', contents: '', line: 0, column: 0 }; }
+                const prompt = cursorPrompt(cursor);
+                const localPort = server.address()?.port;
+                if (!localPort) throw new ProxyError('本地代理尚未监听端口。', 'proxy_not_ready', 503);
+                // Cursor sends internal names such as "main" and "turbo". They
+                // are not OpenAI model IDs, so route them through a compatible
+                // local model while preserving explicit OpenAI-compatible IDs.
+                const model = /^(main|turbo|default)$/i.test(cursor.model || '')
+                    ? 'gpt-4o-mini' : (cursor.model || 'gpt-4o-mini');
+                const localResult = await undiciFetch(`http://127.0.0.1:${localPort}/v1/responses`, {
+                    method: 'POST', headers: { Authorization: `Bearer ${initial.key}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model, input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], stream: false }),
+                    signal: AbortSignal.timeout(600000) });
+                if (!localResult.ok) {
+                    const message = await localResult.text().catch(() => 'Cursor completion failed.');
+                    throw new ProxyError(message.slice(0, 500), `cursor_upstream_${localResult.status}`, localResult.status);
+                }
+                const completion = responseText(await localResult.json());
+                const line = Math.max(1, cursor.line + 1);
+                const payload = Buffer.concat([
+                    connectEnvelope(encodeStreamCppResponse({ text: completion, startLine: line, endLine: line })),
+                    connectEnvelope(encodeStreamCppResponse({ doneStream: true, doneEdit: true, startLine: line, endLine: line }))
+                ]);
+                response.writeHead(200, cursorProtoHeaders(request, { stream: true }));
+                response.end(payload);
+                return;
+            }
+            if (cursorChat) {
+                const body = await rawBody(request);
+                let envelopes;
+                try {
+                    envelopes = decodeConnectEnvelopes(body);
+                } catch {
+                    envelopes = [];
+                }
+                // Cursor 0.44.x may send a raw protobuf body for StreamChat
+                // even though the response uses the Connect stream envelope.
+                // Accept both forms so a protocol framing change does not
+                // surface as an opaque 400 to the chat UI.
+                const input = envelopes.length === 1 && envelopes[0].flags === 0
+                    ? envelopes[0].message : body;
+                const extractedPrompt = extractCursorChatPrompt(input);
+                const plainInput = input.toString('utf8').replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').trim();
+                const plainChars = [...plainInput];
+                const plainPrintable = plainChars.filter(char => {
+                    const code = char.codePointAt(0);
+                    return code >= 0x20 && code !== 0x7f;
+                }).length / Math.max(1, plainChars.length);
+                // Newer Cursor builds encrypt/compress the chat protobuf. Do
+                // not forward decoded binary as a fake prompt; it produces
+                // confusing answers and can make the client report a failed
+                // connection. The local provider still returns a valid chat
+                // response while the opaque payload is unsupported.
+                const prompt = extractedPrompt || (plainPrintable >= 0.8 && !plainInput.includes('\ufffd')
+                    ? plainInput : 'Please answer the latest user message from Cursor Chat.');
+                if (!prompt) throw new ProxyError('无法从 Cursor Chat 请求中提取用户消息。', 'invalid_cursor_request', 400);
+                const model = extractCursorChatModel(input) || 'gpt-6.1-sol';
+                const localPort = server.address()?.port;
+                if (!localPort) throw new ProxyError('本地代理尚未监听端口。', 'proxy_not_ready', 503);
+                const localResult = await undiciFetch(`http://127.0.0.1:${localPort}/v1/responses`, {
+                    method: 'POST', headers: { Authorization: `Bearer ${initial.key}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model, input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], stream: false }),
+                    signal: AbortSignal.timeout(600000) });
+                if (!localResult.ok) {
+                    const message = await localResult.text().catch(() => 'Cursor chat completion failed.');
+                    throw new ProxyError(message.slice(0, 500), `cursor_upstream_${localResult.status}`, localResult.status);
+                }
+                const completion = responseText(await localResult.json());
+                const payloadParts = [connectEnvelope(encodeStreamChatResponse(completion))];
+                const requestType = String(request.headers['content-type'] || '').toLowerCase();
+                if (requestType.includes('grpc-web')) {
+                    payloadParts.push(connectEnvelope(Buffer.from('grpc-status: 0\r\n', 'ascii'), 0x80));
+                } else if (!requestType.includes('grpc')) {
+                    // Connect streaming RPCs finish with an end-stream
+                    // envelope carrying JSON metadata.
+                    payloadParts.push(connectEnvelope(Buffer.from('{"error":null}', 'utf8'), 0x02));
+                }
+                const payload = Buffer.concat(payloadParts);
+                response.writeHead(200, cursorProtoHeaders(request, { stream: true }));
+                response.end(payload);
+                return;
+            }
             if (url.pathname === '/health' && request.method === 'GET') {
                 const selected = state.selected_file
                     ? await readJSON(accountPath(state, state.selected_file)).catch(() => null) : null;
@@ -416,24 +699,44 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             shouldRecord = route[1] !== 'models';
             name = state.selected_file;
             let file = accountPath(state, name);
-            let record = await credentials.get(file);
             const queue = (await priorityEntries(state)).filter(item => item.enabled).map(item => item.name);
             let queueIndex = queue.indexOf(name);
             const triedAccounts = new Set([name]);
+            let record;
             async function switchQueuedAccount() {
                 if (!normalizePrioritySettings(state.priority).enabled || !queue.length) return false;
-                let next;
                 for (let count = 0; count < queue.length; count++) {
                     queueIndex = (queueIndex + 1) % queue.length;
-                    if (!triedAccounts.has(queue[queueIndex])) { next = queue[queueIndex]; break; }
+                    const next = queue[queueIndex];
+                    if (triedAccounts.has(next)) continue;
+                    triedAccounts.add(next);
+                    try {
+                        const nextFile = next === '__custom__' ? file : accountPath(state, next);
+                        const nextRecord = next === '__custom__'
+                            ? { provider: 'custom', base_url: state.custom_base_url,
+                                api_key: (await readJSON(path.join(codexHome, 'auth.json'))).OPENAI_API_KEY }
+                            : await credentials.get(nextFile);
+                        name = next;
+                        file = nextFile;
+                        record = nextRecord;
+                        if (name !== '__custom__') await locked(path.join(directory, 'state.mutex'), async () => { const latest = await readJSON(statePath); latest.selected_file = name; await writeJSON(statePath, latest); });
+                        return true;
+                    } catch (error) {
+                        attemptErrors.push({ attempt: attemptCount, account: next,
+                            status: error.status || 401, code: error.code || 'account_unavailable',
+                            message: error.message || 'Account unavailable.' });
+                    }
                 }
-                if (!next) return false;
-                triedAccounts.add(next);
-                name = next;
-                if (name === '__custom__') { const customAuth = await readJSON(path.join(codexHome, 'auth.json')); record = { provider: 'custom', base_url: state.custom_base_url, api_key: customAuth.OPENAI_API_KEY }; }
-                else { file = accountPath(state, name); record = await credentials.get(file); }
-                if (name !== '__custom__') await locked(path.join(directory, 'state.mutex'), async () => { const latest = await readJSON(statePath); latest.selected_file = name; await writeJSON(statePath, latest); });
-                return true;
+                return false;
+            }
+            try {
+                record = await credentials.get(file);
+            } catch (initialError) {
+                attemptErrors.push({ attempt: 0, account: name,
+                    status: initialError.status || 401,
+                    code: initialError.code || 'token_refresh_failed',
+                    message: initialError.message || 'Token refresh failed.' });
+                if (!(await switchQueuedAccount())) throw initialError;
             }
             let body;
             let stream = false;
@@ -482,7 +785,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             let result;
             let capacityRetries = 0;
             const capacityRetry = normalizeCapacityRetrySettings(state.capacity_retry);
-            for (let attempt = 0; attempt < 2 + capacityRetry.max_retries; attempt++) {
+            for (let attempt = 0; attempt < 2 + maxCapacityRetries; attempt++) {
                 const target = upstream(record, route[1]);
                 if (!target.token) throw new ProxyError('Account has no usable token.', 'login_required', 401);
                 const headers = { Authorization: `Bearer ${target.token}`, 'Content-Type': 'application/json',
@@ -499,17 +802,17 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 if (result.ok && upstreamStream && stream) {
                     try {
                         const buffered = await bufferStream(result.body);
-                        if (!streamCompleted(buffered) && capacityRetry.enabled && capacityRetries < capacityRetry.max_retries) {
+                        if (!streamCompleted(buffered) && capacityRetry.enabled && capacityRetries < maxCapacityRetries) {
                             capacityRetries++; await waitRetry(capacityRetry); attempt--; continue;
                         }
                         result = new Response(buffered, { status: result.status, headers: result.headers });
                     } catch (error) {
                         attemptErrors.push({ attempt: attemptCount, account: name, code: error.code || 'stream_error', message: error.message });
-                        if (capacityRetry.enabled && capacityRetries < capacityRetry.max_retries && retryableStreamError(error)) { capacityRetries++; await waitRetry(capacityRetry); attempt--; continue; }
+                        if (capacityRetry.enabled && capacityRetries < maxCapacityRetries && retryableStreamError(error)) { capacityRetries++; await waitRetry(capacityRetry); attempt--; continue; }
                         throw error;
                     }
                 }
-                if (capacityRetry.enabled && capacityRetries < capacityRetry.max_retries && await transientResponse(result)) {
+                if (capacityRetry.enabled && capacityRetries < maxCapacityRetries && await transientResponse(result)) {
                     capacityRetries++; await waitRetry(capacityRetry); attempt--; continue;
                 }
                 const errorKey = `${name}`;
@@ -519,7 +822,25 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 if (result.status !== 401 || attempt !== 0 || record.OPENAI_API_KEY || isDeepSeek(record)) break;
                 const error = await responseError(result);
                 if (!retryableAuthCodes.has(error.code)) throw error;
-                record = await credentials.get(file, { force: true, failedToken: record.tokens.access_token });
+                try {
+                    record = await credentials.get(file, { force: true, failedToken: record.tokens.access_token });
+                } catch (refreshError) {
+                    // A revoked or reused refresh token must not strand the
+                    // request on one account when priority switching is on.
+                    // Treat the failed renewal as an account failure and try
+                    // the next eligible account before exposing 401.
+                    attemptErrors.push({ attempt: attemptCount, account: name,
+                        status: refreshError.status || 401,
+                        code: refreshError.code || 'token_refresh_failed',
+                        message: refreshError.message || 'Token refresh failed.' });
+                    if (await switchQueuedAccount()) {
+                        statisticsAccount = usageAccount(name, record);
+                        capacityRetries = 0;
+                        attempt = -1;
+                        continue;
+                    }
+                    throw refreshError;
+                }
             }
             if (route[1] === 'models' && result.ok) {
                 let catalog = await result.json();
