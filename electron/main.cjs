@@ -75,7 +75,7 @@ else {
                 const route = action === 'requestLog' ? `${allowed[action]}/${Number(input?.id) || 0}` : allowed[action];
                 const result = await service.localCall(directory, route,
                     ['status', 'accounts', 'statistics', 'requestLogs', 'requestLog', 'priority'].includes(action) && input === undefined ? undefined : action === 'deepseek'
-                        ? { name: input?.name, base_url: input?.base_url, api_key: input?.api_key, edit: input?.edit === true }
+                        ? { name: input?.name, base_url: input?.base_url, api_key: input?.api_key, fixed_model: input?.fixed_model, edit: input?.edit === true }
                         : action === 'settings' || action === 'priority' || action === 'requestLogs' ? input : action === 'requestLog' ? undefined
                         : { name: typeof input?.name === 'string' ? input.name : undefined });
                 return { ok: true, result };

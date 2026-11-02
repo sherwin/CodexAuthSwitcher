@@ -39,14 +39,17 @@ export function deepSeekSettings(record) {
     if (typeof key !== 'string' || !key || key.length > 4096 || /[^\x21-\x7e]/.test(key)) {
         throw new ProxyError('请输入有效的 DeepSeek API Key。', 'invalid_api_key', 400);
     }
-    return { base_url: url.href.replace(/\/+$/, ''), api_key: key };
+    const fixedModel = record.fixed_model == null ? '' : String(record.fixed_model).trim();
+    if (fixedModel.length > 200 || /[\r\n]/.test(fixedModel))
+        throw new ProxyError('固定模型名称无效。', 'invalid_fixed_model', 400);
+    return { base_url: url.href.replace(/\/+$/, ''), api_key: key, fixed_model: fixedModel };
 }
 
 export function upstream(record, route) {
     if (record?.provider === 'custom') return { url: `${String(record.base_url).replace(/\/+$/, '')}/${route}`, token: record.api_key, provider: 'custom' };
     if (isDeepSeek(record)) {
         const settings = deepSeekSettings(record);
-        return { url: `${settings.base_url}/${route}`, token: settings.api_key, provider: 'deepseek' };
+        return { url: `${settings.base_url}/${route}`, token: settings.api_key, provider: 'deepseek', fixed_model: settings.fixed_model };
     }
     if (record.OPENAI_API_KEY) return { url: `https://api.openai.com/v1/${route}`, token: record.OPENAI_API_KEY };
     const base = record.client_id && record.client_id !== legacyClient

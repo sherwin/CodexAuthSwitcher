@@ -69,6 +69,7 @@ function openDeepSeek(item) {
     document.querySelector('#deepseek-name').value = item?.name || '';
     document.querySelector('#deepseek-name').disabled = Boolean(item);
     document.querySelector('#deepseek-url').value = item?.base_url || 'https://api.deepseek.com';
+    document.querySelector('#deepseek-model').value = item?.fixed_model || '';
     document.querySelector('#deepseek-key').required = !item;
     document.querySelector('#deepseek-key').placeholder = item ? '留空保留已有 Key' : '输入 API Key';
     document.querySelector('#deepseek-status').textContent = '';
@@ -94,6 +95,7 @@ document.querySelector('#deepseek-form').addEventListener('submit', async event 
     try {
         await call('deepseek', { name: name.endsWith('.json') ? name : name + '.json',
             base_url: document.querySelector('#deepseek-url').value.trim(),
+            fixed_model: document.querySelector('#deepseek-model').value.trim(),
             api_key: document.querySelector('#deepseek-key').value, edit: editingDeepSeek });
         document.querySelector('#deepseek-dialog').close();
         await refresh();

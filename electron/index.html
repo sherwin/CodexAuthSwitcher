@@ -56,6 +56,8 @@
       <label>账号名称<input id="deepseek-name" type="text" required maxlength="100" placeholder="例如：DeepSeek 主账号"></label>
       <label>Base URL<input id="deepseek-url" type="url" required value="https://api.deepseek.com" autocomplete="off" spellcheck="false"></label>
       <p class="muted">填写 OpenAI 兼容 API 根地址，例如 DeepSeek 或局域网 Codex Auth Switcher 地址，可带 /v1。</p>
+      <label>固定模型（可选）<input id="deepseek-model" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="例如：deepseek-chat"></label>
+      <p class="muted">填写后会直接替换请求中的 model 字段。</p>
       <label>API Key<input id="deepseek-key" type="password" required maxlength="4096" autocomplete="off" spellcheck="false"></label>
       <p id="deepseek-key-help" class="muted">Key 仅保存在当前授权目录，保存后不会显示。HTTP 地址会以明文传输 Key，请优先使用 HTTPS。</p>
       <p class="muted">支持 Responses 和 Chat Completions。保存后可作为代理出口，也可应用为 Codex 的直连地址。</p>

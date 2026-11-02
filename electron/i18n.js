@@ -49,7 +49,7 @@
         '时间不可用': 'Time unavailable', '登录': 'Sign in', '使用管理账号继续。': 'Use the administrator account to continue.', '用户名': 'Username', '密码': 'Password', '正在登录…': 'Signing in…', '登录已过期，请重新登录。': 'Session expired. Please sign in again.', '用户名或密码不正确': 'Invalid username or password', '尝试次数过多，请一分钟后重试': 'Too many attempts. Try again in one minute.', '管理账号继续。': 'Continue with the administrator account.',
         '固定本地密钥 · 流式转发': 'Fixed local key · streaming relay', '调用地址': 'Request URL', '返回方式': 'Response mode',
         '默认返回完整 JSON。预览隐藏 Key，一键复制包含真实本地 Key；消耗代理出口账号额度。请勿公开命令，Key 会留在剪贴板和终端历史中。': 'Returns complete JSON by default. The preview hides the key; copying includes the local key and consumes the proxy account quota. Do not share the command; the key remains in clipboard and shell history.',
-        '账号名称': 'Account name', '例如：DeepSeek 主账号': 'Example: DeepSeek primary account',
+        '账号名称': 'Account name', '例如：DeepSeek 主账号': 'Example: DeepSeek primary account', '固定模型（可选）': 'Fixed model (optional)', '填写后会直接替换请求中的 model 字段。': 'When set, this replaces the model field in incoming requests.', '例如：deepseek-chat': 'Example: deepseek-chat',
         '填写 OpenAI 兼容 API 根地址，例如 DeepSeek 或局域网 Codex Auth Switcher 地址，可带 /v1。': 'Enter an OpenAI-compatible API root URL, such as DeepSeek or a LAN Codex Auth Switcher URL. An optional /v1 is allowed.',
         'Key 仅保存在当前授权目录，保存后不会显示。HTTP 地址会以明文传输 Key，请优先使用 HTTPS。': 'The key is stored only in the current auth directory and is never shown after saving. HTTP sends the key in plaintext; prefer HTTPS.',
         '支持 Responses 和 Chat Completions。保存后可作为代理出口，也可应用为 Codex 的直连地址。': 'Supports Responses and Chat Completions. After saving, it can be used as a proxy account or direct Codex URL.',

@@ -535,7 +535,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                     }
                     accounts.push({ name: entry.name, modifiedAt: stat.mtime.toISOString(),
                         provider: isDeepSeek(record) ? 'deepseek' : 'openai',
-                        ...(isDeepSeek(record) ? { base_url: base } : {}),
+                        ...(isDeepSeek(record) ? { base_url: base, fixed_model: deepSeekSettings(record).fixed_model || null } : {}),
                         tokenExpiresAt: claims(record.tokens?.access_token || '').exp || null,
                         active: entry.name === state.selected_file });
                 }
@@ -607,11 +607,11 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                             if (!previous || !isDeepSeek(previous))
                                 throw new ProxyError('只能修改已有的 DeepSeek 账号。', 'invalid_account', 409);
                         } else if (previous) throw new ProxyError('同名账号已存在，请换一个名称。', 'account_exists', 409);
-                        const settings = deepSeekSettings({ base_url: input.base_url,
+                        const settings = deepSeekSettings({ base_url: input.base_url, fixed_model: input.fixed_model,
                             api_key: input.edit === true && input.api_key === ''
                                 ? previous.DEEPSEEK_API_KEY ?? previous.api_key : input.api_key });
                         await writeJSON(file, { provider: 'deepseek', base_url: settings.base_url,
-                            DEEPSEEK_API_KEY: settings.api_key });
+                            DEEPSEEK_API_KEY: settings.api_key, fixed_model: String(input.fixed_model || '').trim() });
                     });
                     sendJSON(response, 200, { ok: true, name });
                     return;
@@ -745,6 +745,11 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 const input = await bodyJSON(request);
                 requestBody = input;
                 requestModel = typeof input.model === 'string' ? input.model : null;
+                const selectedUpstream = upstream(record, route[1]);
+                if (selectedUpstream.fixed_model) {
+                    input.model = selectedUpstream.fixed_model;
+                    requestModel = input.model;
+                }
                 if (input.previous_response_id) throw new ProxyError('Send full conversation input when using account switching.', 'unsupported_continuation', 400);
                 if (route[1] === 'responses/compact' && isDeepSeek(record)) {
                     throw new ProxyError('DeepSeek 未提供 Responses compact 接口。', 'unsupported_wire_api', 400);
