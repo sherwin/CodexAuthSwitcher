@@ -27,8 +27,7 @@ import { decodeConnectEnvelopes, decodeStreamCppRequest, encodeStreamCppResponse
 const maxBody = 32 * 1024 * 1024;
 const retryableAuthCodes = new Set(['token_expired', 'invalid_token', 'token_invalidated',
     'invalid_grant', 'refresh_token_reused', 'refresh_token_expired', 'refresh_token_invalidated']);
-const maxCapacityRetries = 5;
-function retryableStreamError(error) { return /network|disconnect|socket|body|fetch|transport/i.test(String(error?.message || error)); }
+function retryableStreamError(error) { return /network|disconnect|socket|body|fetch|transport|econn|enotfound|etimedout|reset/i.test(String(error?.message || error)); }
 async function transientResponse(response) {
     if (!response || response.ok || ![429, 500, 502, 503, 504].includes(response.status)) return false;
     try { const body = await response.clone().text(); return /selected\s+model\s+is\s+at\s+capacity/i.test(body) || (response.status === 502 && /bad\s+gateway|unknown\s+error/i.test(body)); }
@@ -572,6 +571,10 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             if (url.pathname === '/admin/settings' && request.method === 'GET') {
                 sendJSON(response, 200, { capacity_retry: normalizeCapacityRetrySettings(state.capacity_retry) }); return;
             }
+            if (url.pathname === '/admin/config-test' && request.method === 'GET') {
+                const result = await inspectConfiguration(state, path.join(codexHome, 'config.toml'));
+                sendJSON(response, 200, { ok: result.matches, config: result }); return;
+            }
             if (url.pathname === '/admin/priority' && request.method === 'GET') {
                 const entries = await priorityEntries(state);
                 sendJSON(response, 200, { priority: normalizePrioritySettings(state.priority), entries }); return;
@@ -790,7 +793,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             let result;
             let capacityRetries = 0;
             const capacityRetry = normalizeCapacityRetrySettings(state.capacity_retry);
-            for (let attempt = 0; attempt < 2 + maxCapacityRetries; attempt++) {
+            for (let attempt = 0; attempt < 2 + capacityRetry.max_retries; attempt++) {
                 const target = upstream(record, route[1]);
                 if (!target.token) throw new ProxyError('Account has no usable token.', 'login_required', 401);
                 const headers = { Authorization: `Bearer ${target.token}`, 'Content-Type': 'application/json',
@@ -800,24 +803,42 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 for (const key of ['session_id', 'conversation_id', 'openai-beta', 'x-codex-turn-metadata']) {
                     if (request.headers[key]) headers[key] = request.headers[key];
                 }
-                result = await fetchUpstream(target.url, { method: request.method, headers, body,
-                    redirect: 'manual', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(600000)]) });
+                try {
+                    result = await fetchUpstream(target.url, { method: request.method, headers, body,
+                        redirect: 'manual', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(600000)]) });
+                } catch (error) {
+                    // 连接失败没有 HTTP 响应，纳入与容量错误相同的内部重试策略，
+                    // 避免把运行时的 502 Bad Gateway 直接暴露给 Codex。
+                    attemptCount++;
+                    attemptErrors.push({ attempt: attemptCount, account: name, code: 'upstream_unavailable',
+                        message: upstreamErrorDetail(error).slice(0, 500) });
+                    if (controller.signal.aborted) throw error;
+                    if (capacityRetry.enabled && capacityRetries < capacityRetry.max_retries && retryableStreamError(error)) {
+                        capacityRetries++;
+                        await waitRetry(capacityRetry);
+                        attempt--;
+                        continue;
+                    }
+                    const unavailable = new ProxyError('上游连接暂时不可用，请稍后重试。', 'upstream_unavailable', 503);
+                    unavailable.cause = error;
+                    throw unavailable;
+                }
                 attemptCount++;
                 if (!result.ok) { const errorText = await result.clone().text().catch(() => ''); attemptErrors.push({ attempt: attemptCount, account: name, status: result.status, code: `upstream_http_${result.status}`, message: errorText.slice(0, 500) }); }
                 if (result.ok && upstreamStream && stream) {
                     try {
                         const buffered = await bufferStream(result.body);
-                        if (!streamCompleted(buffered) && capacityRetry.enabled && capacityRetries < maxCapacityRetries) {
+                        if (!streamCompleted(buffered) && capacityRetry.enabled && capacityRetries < capacityRetry.max_retries) {
                             capacityRetries++; await waitRetry(capacityRetry); attempt--; continue;
                         }
                         result = new Response(buffered, { status: result.status, headers: result.headers });
                     } catch (error) {
                         attemptErrors.push({ attempt: attemptCount, account: name, code: error.code || 'stream_error', message: error.message });
-                        if (capacityRetry.enabled && capacityRetries < maxCapacityRetries && retryableStreamError(error)) { capacityRetries++; await waitRetry(capacityRetry); attempt--; continue; }
+                        if (capacityRetry.enabled && capacityRetries < capacityRetry.max_retries && retryableStreamError(error)) { capacityRetries++; await waitRetry(capacityRetry); attempt--; continue; }
                         throw error;
                     }
                 }
-                if (capacityRetry.enabled && capacityRetries < maxCapacityRetries && await transientResponse(result)) {
+                if (capacityRetry.enabled && capacityRetries < capacityRetry.max_retries && await transientResponse(result)) {
                     capacityRetries++; await waitRetry(capacityRetry); attempt--; continue;
                 }
                 const errorKey = `${name}`;
@@ -909,7 +930,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
             requestBody ??= error.requestBody;
             if (!controller?.signal.aborted) void report(error, name);
             if (!response.headersSent && !response.destroyed) {
-                sendJSON(response, error.status || 502, { error: { code: error.code || 'upstream_unavailable',
+                sendJSON(response, error.status || 503, { error: { code: error.code || 'upstream_unavailable',
                     message: error instanceof ProxyError ? error.message : 'The upstream connection failed.' } });
             } else response.destroy();
         } finally {

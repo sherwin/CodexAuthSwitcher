@@ -56,6 +56,52 @@ test('502 unknown errors use the same internal retry policy', async () => {
     } finally { await gateway.close(); await rm(root, { recursive: true, force: true }); }
 });
 
+test('upstream connection failures are retried internally and never exposed as 502', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'auth-switcher-test-'));
+    const auth = path.join(root, 'auth');
+    await mkdir(auth);
+    await writeFile(path.join(auth, 'test.json'), JSON.stringify({ OPENAI_API_KEY: 'test-key' }));
+    await writeFile(path.join(root, 'proxy.json'), JSON.stringify({ key: 'local-key', port: 0,
+        lan_enabled: false, enabled: true, auth_directory: auth, selected_file: 'test.json',
+        capacity_retry: { enabled: true, min_seconds: 0.1, max_seconds: 0.1, max_retries: 1 } }));
+    let attempts = 0;
+    const fetchUpstream = async () => {
+        attempts++;
+        if (attempts === 1) throw new TypeError('fetch failed: ECONNREFUSED');
+        return new Response(JSON.stringify({ id: 'ok', output: [], usage: {} }),
+            { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    const gateway = await createGateway(root, { fetchUpstream });
+    try {
+        const response = await fetch(`http://127.0.0.1:${gateway.server.address().port}/v1/responses`, {
+            method: 'POST', headers: { authorization: 'Bearer local-key', 'content-type': 'application/json' },
+            body: JSON.stringify({ model: 'x', input: 'hi', stream: false }) });
+        assert.equal(response.status, 200);
+        assert.equal(attempts, 2);
+    } finally { await gateway.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('exhausted upstream connection failures return 503 instead of 502', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'auth-switcher-test-'));
+    const auth = path.join(root, 'auth');
+    await mkdir(auth);
+    await writeFile(path.join(auth, 'test.json'), JSON.stringify({ OPENAI_API_KEY: 'test-key' }));
+    await writeFile(path.join(root, 'proxy.json'), JSON.stringify({ key: 'local-key', port: 0,
+        lan_enabled: false, enabled: true, auth_directory: auth, selected_file: 'test.json',
+        capacity_retry: { enabled: true, min_seconds: 0.1, max_seconds: 0.1, max_retries: 1 } }));
+    let attempts = 0;
+    const fetchUpstream = async () => { attempts++; throw new TypeError('fetch failed: ECONNREFUSED'); };
+    const gateway = await createGateway(root, { fetchUpstream });
+    try {
+        const response = await fetch(`http://127.0.0.1:${gateway.server.address().port}/v1/responses`, {
+            method: 'POST', headers: { authorization: 'Bearer local-key', 'content-type': 'application/json' },
+            body: JSON.stringify({ model: 'x', input: 'hi', stream: false }) });
+        assert.equal(response.status, 503);
+        assert.equal((await response.json()).error.code, 'upstream_unavailable');
+        assert.equal(attempts, 2);
+    } finally { await gateway.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test('incomplete streaming bodies are retried before delivery', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'auth-switcher-test-'));
     const auth = path.join(root, 'auth');
