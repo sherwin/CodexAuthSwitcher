@@ -102,6 +102,34 @@ test('exhausted upstream connection failures return 503 instead of 502', async (
     } finally { await gateway.close(); await rm(root, { recursive: true, force: true }); }
 });
 
+test('each configured account gets its own retry budget before the request fails', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'auth-switcher-test-'));
+    const auth = path.join(root, 'auth');
+    await mkdir(auth);
+    await writeFile(path.join(auth, 'a.json'), JSON.stringify({ OPENAI_API_KEY: 'key-a' }));
+    await writeFile(path.join(auth, 'b.json'), JSON.stringify({ OPENAI_API_KEY: 'key-b' }));
+    await writeFile(path.join(root, 'proxy.json'), JSON.stringify({ key: 'local-key', port: 0,
+        lan_enabled: false, enabled: true, auth_directory: auth, selected_file: 'a.json',
+        priority: { enabled: true, order: ['a.json', 'b.json'] },
+        capacity_retry: { enabled: true, min_seconds: 0.1, max_seconds: 0.1, max_retries: 2 } }));
+    const accounts = [];
+    const fetchUpstream = async (_url, options) => {
+        accounts.push(options.headers.Authorization);
+        return new Response('Bad Gateway: Unknown error', { status: 502 });
+    };
+    const gateway = await createGateway(root, { fetchUpstream });
+    try {
+        const response = await fetch(`http://127.0.0.1:${gateway.server.address().port}/v1/responses`, {
+            method: 'POST', headers: { authorization: 'Bearer local-key', 'content-type': 'application/json' },
+            body: JSON.stringify({ model: 'x', input: 'hi', stream: false }) });
+        assert.equal(response.status, 502);
+        assert.deepEqual(accounts, [
+            'Bearer key-a', 'Bearer key-a', 'Bearer key-a',
+            'Bearer key-b', 'Bearer key-b', 'Bearer key-b'
+        ]);
+    } finally { await gateway.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test('incomplete streaming bodies are retried before delivery', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'auth-switcher-test-'));
     const auth = path.join(root, 'auth');

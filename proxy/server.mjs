@@ -819,6 +819,12 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                         attempt--;
                         continue;
                     }
+                    if (await switchQueuedAccount()) {
+                        statisticsAccount = usageAccount(name, record);
+                        capacityRetries = 0;
+                        attempt = -1;
+                        continue;
+                    }
                     const unavailable = new ProxyError('上游连接暂时不可用，请稍后重试。', 'upstream_unavailable', 503);
                     unavailable.cause = error;
                     throw unavailable;
