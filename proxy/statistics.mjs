@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { promises as fs } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { locked, readJSON, writeJSON } from './storage.mjs';
 import { identity } from './credentials.mjs';
@@ -82,7 +83,7 @@ export class TokenStatistics {
             for (let time = start.getTime(); time <= end.getTime(); time += dayMilliseconds) result.push(new Date(time).toISOString().slice(0, 10));
             return result;
         };
-        const ranges = { day: [day], week: dates(weekStart, new Date(weekStart.getTime() + 6 * dayMilliseconds)), month: dates(monthStart, monthEnd) };
+        const ranges = { day: [day], week: dates(weekStart, new Date(weekStart.getTime() + 6 * dayMilliseconds)), month: dates(monthStart, monthEnd), year: dates(new Date(date.getTime() - 364 * dayMilliseconds), date) };
         const snapshots = new Map();
         for (const current of [...new Set(Object.values(ranges).flat())].sort()) {
             if (current > day) continue;
@@ -117,7 +118,21 @@ export class TokenStatistics {
         }
         // Preserve the daily API shape for existing local clients.
         const today = periods.day;
+        const allAccounts = new Map();
+        for (const file of await fs.readdir(this.directory).catch(() => [])) {
+            if (!/^\d{4}-\d{2}-\d{2}\.json$/.test(file)) continue;
+            const snapshot = await this.load(file.slice(0, 10));
+            for (const source of Object.values(snapshot.accounts)) {
+                const target = allAccounts.get(source.id) || { id: source.id, name: source.name, aliases: [], ...empty(), buckets: [] };
+                target.name = source.name; target.aliases = [...new Set([...target.aliases, ...(source.aliases || [source.name])])];
+                for (const field of fields) target[field] += source[field];
+                allAccounts.set(source.id, target);
+            }
+        }
+        const totalAccounts = [...allAccounts.values()].sort((a, b) => b.total_tokens - a.total_tokens);
+        const total = { period: 'total', day, start: null, end: day, timezone: 'Asia/Shanghai', updated_at: null, buckets: [], accounts: totalAccounts, totals: { ...empty(), buckets: [] } };
+        for (const account of totalAccounts) for (const field of fields) total.totals[field] += account[field];
         return { ...today, accounts: today.accounts.map(account => ({ ...account, hours: account.buckets })),
-            totals: { ...today.totals, hours: today.totals.buckets }, periods };
+            totals: { ...today.totals, hours: today.totals.buckets }, periods: { ...periods, total } };
     }
 }

@@ -7,7 +7,7 @@
   <title>Codex Auth Switcher</title>
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="desktop-app">
   <div id="home-page">
   <header>
     <div><p class="eyebrow">LOCAL ACCOUNT GATEWAY</p><h1>Codex Auth Switcher</h1><p class="muted">本地代理与 Codex 连接配置，独立管理。</p></div>
@@ -74,7 +74,7 @@
         <button data-mode="unconfigured" aria-pressed="true">空</button><button data-mode="key" aria-pressed="false">本机代理</button><button data-mode="auth_file" aria-pressed="false">授权文件</button>
       </div>
       <div id="mode-empty" class="mode-content"><h3>空 · 不管理 Codex 配置</h3><p class="muted">首次默认选项。不清除、不改写 config.toml 或 auth.json；Codex 继续使用它自己的现有配置。本地代理仍独立运行。</p><button id="unconfigure">设为空（保留现有配置）</button></div>
-      <div id="mode-key" class="mode-content" hidden><h3>Key · 连接本地代理</h3><p class="muted">自动配置 Base URL 和本地 Key，使用「本地代理」Tab 中的出口授权文件。</p><button id="configure" class="primary">应用 Key 模式</button></div>
+      <div id="mode-key" class="mode-content" hidden><h3>Key · 连接本地代理</h3><p class="muted">自动配置 Base URL 和本地 Key，使用「本地代理」Tab 中的出口授权文件。</p><div class="actions"><button id="configure" class="primary">应用 Key 模式</button><button id="test-config">测试配置文件</button></div><p id="config-test-status" class="muted" role="status"></p></div>
       <div id="mode-auth-file" hidden><div class="list-heading codex-account-heading"><h3>Codex 授权文件</h3><button id="codex-directory" class="text-button">选择授权目录</button></div><p class="muted">点击卡片直接覆盖 Codex 授权文件，不刷新令牌、不校验额度，也不改变代理出口。应用后需重启 Codex；文件失效时仍需重新登录。</p><p id="codex-directory-path" class="muted path"></p><div id="codex-accounts"><p class="muted">读取账号…</p></div></div>
     </section>
   </section>
@@ -88,22 +88,22 @@
     </section>
   </section>
   </div>
-  <section id="request-logs-page" hidden aria-labelledby="request-logs-title"><header><div><button id="back-from-logs" class="text-button">← 返回账号</button><h1 id="request-logs-title">请求记录</h1><p class="muted">请求与返回体都会保存；点击记录查看详情。</p></div><div class="actions"><select id="request-log-filter" aria-label="筛选错误类型"><option value="all">全部记录</option><option value="errors">仅失败</option><option value="capacity">容量错误</option><option value="network">网络/断开错误</option></select><button id="refresh-request-logs">刷新记录</button></div></header><div class="request-logs-layout"><div><div id="request-logs-list" class="request-logs-list"></div><div class="request-logs-pagination"><button id="request-logs-prev">上一页</button><span id="request-logs-page-label">第 1 / 1 页</span><input id="request-logs-page-input" type="number" min="1" value="1"><button id="request-logs-go">跳转</button><button id="request-logs-next">下一页</button></div></div><section id="request-log-detail" class="card request-log-detail"><div class="list-heading"><h2 id="request-log-detail-title">记录详情</h2><button id="close-request-log-detail" class="text-button">清空</button></div><p id="request-log-detail-meta" class="muted">从左侧选择一条记录。</p><h3>请求体</h3><pre id="request-log-request-body">(未选择记录)</pre><h3>返回体</h3><pre id="request-log-response-body">(未选择记录)</pre></section></div></section>
+  <section id="request-logs-page" hidden aria-labelledby="request-logs-title"><header><div><button id="back-from-logs" class="text-button">← 返回账号</button><h1 id="request-logs-title">请求记录</h1><p class="muted">请求与返回体都会保存；点击记录查看详情。</p></div><div class="actions page-toolbar-actions"><select id="request-log-filter" aria-label="筛选错误类型"><option value="all">全部记录</option><option value="errors">仅失败</option><option value="capacity">容量错误</option><option value="network">网络/断开错误</option></select><button id="refresh-request-logs">刷新记录</button></div></header><div class="request-logs-layout"><div><div id="request-logs-list" class="request-logs-list"></div><div class="request-logs-pagination"><button id="request-logs-prev">上一页</button><span id="request-logs-page-label">第 1 / 1 页</span><input id="request-logs-page-input" type="number" min="1" value="1"><button id="request-logs-go">跳转</button><button id="request-logs-next">下一页</button></div></div><section id="request-log-detail" class="card request-log-detail"><div class="list-heading"><h2 id="request-log-detail-title">记录详情</h2><button id="close-request-log-detail" class="text-button">清空</button></div><p id="request-log-detail-meta" class="muted">从左侧选择一条记录。</p><h3>请求体</h3><pre id="request-log-request-body">(未选择记录)</pre><h3>返回体</h3><pre id="request-log-response-body">(未选择记录)</pre></section></div></section>
   <section id="statistics-page" hidden aria-labelledby="statistics-title">
     <header><div><button id="back-home" class="text-button">← 返回账号</button><h1 id="statistics-title">今日 Token 用量</h1><p id="statistics-day" class="muted"></p></div>
     </header>
-    <div class="statistics-toolbar">
+    <div class="statistics-toolbar page-toolbar-actions">
       <div id="statistics-period" class="period-switch" role="group" aria-label="统计周期">
         <button type="button" data-period="day" aria-pressed="true">今日</button>
         <button type="button" data-period="week" aria-pressed="false">本周</button>
-        <button type="button" data-period="month" aria-pressed="false">本月</button>
+        <button type="button" data-period="month" aria-pressed="false">本月</button><button type="button" data-period="year" aria-pressed="false">过去一年</button><button type="button" data-period="total" aria-pressed="false">总</button>
       </div>
       <div class="actions"><select id="statistics-account" aria-label="筛选账号"><option value="all">全部账号</option></select><button id="refresh-statistics">刷新统计</button></div>
     </div>
     <p class="notice">仅统计本地代理收到的上游用量，包含 Codex、curl 和局域网调用。按请求结束时的北京时间归属日期；启用前的历史用量无法补算。缓存已包含在输入中，推理已包含在输出中，不重复累加。</p>
     <div id="statistics-summary" class="metrics"></div>
     <p id="statistics-coverage" class="muted" role="status"></p>
-    <section class="card statistics-chart"><h2 id="statistics-chart-title">每小时 Token</h2><div id="statistics-hours" class="hour-chart" role="img" aria-label="今日每小时 Token 柱状图"></div></section>
+    <section class="card statistics-chart"><h2 id="statistics-chart-title">每小时 Token</h2><div id="statistics-hours" class="hour-chart" role="img" aria-label="今日每小时 Token 柱状图"></div><div id="statistics-heatmap" class="statistics-heatmap" hidden></div></section>
     <section class="card"><h2>账号用量</h2><div class="statistics-table-wrap"><table class="statistics-table"><thead><tr><th>账号</th><th>输入</th><th>输出</th><th>总 Token</th><th>请求</th><th>用量未知</th></tr></thead><tbody id="statistics-rows"></tbody></table></div></section>
     <p id="statistics-status" class="muted" role="status"></p>
   </section>

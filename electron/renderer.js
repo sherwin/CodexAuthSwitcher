@@ -180,8 +180,8 @@ function renderStatistics() {
     const filter = available.get(selected);
     const rows = selected === 'all' ? [...current.values()] : [{ ...(current.get(filter.id) || filter), name: filter.name }];
     const totals = selected === 'all' ? data.totals : rows[0];
-    document.querySelector('#statistics-title').textContent = tr(`${{ day: '今日', week: '本周', month: '本月' }[period]} Token 用量`);
-    document.querySelector('#statistics-day').textContent = tr(`${data.start === data.end ? data.start : data.start + ' 至 ' + data.end} · 北京时间 · 周一开始 / 自然月 · 数据保存在本机`);
+    document.querySelector('#statistics-title').textContent = tr(`${{ day: '今日', week: '本周', month: '本月', year: '过去一年', total: '总' }[period]} Token 用量`);
+    document.querySelector('#statistics-day').textContent = period === 'total' ? tr('全部已保存用量 · 数据保存在本机') : tr(`${data.start === data.end ? data.start : data.start + ' 至 ' + data.end} · 北京时间 · 周一开始 / 自然月 · 数据保存在本机`);
     const summary = document.querySelector('#statistics-summary');
     summary.replaceChildren(metric('总 Token', tokenNumber(totals?.total_tokens), '已收到上游用量', 'good'),
         metric('输入 Token', tokenNumber(totals?.input_tokens), `其中缓存 ${tokenNumber(totals?.cached_tokens)}`),
@@ -194,9 +194,12 @@ function renderStatistics() {
         ? tr(`${number(totals.unknown_requests)} 次请求未收到完整用量（中断、失败或上游未提供），总 Token 可能低于实际消耗。`)
         : tr('无未知用量请求。未经过本地代理的调用不在统计范围内。');
     const chart = document.querySelector('#statistics-hours');
+    const heatmap = document.querySelector('#statistics-heatmap');
     chart.replaceChildren();
-    document.querySelector('#statistics-chart-title').textContent = tr(period === 'day' ? '每小时 Token' : '每日 Token');
     const hours = totals?.buckets || data.buckets.map(() => 0);
+    chart.hidden = period === 'year' || period === 'total'; heatmap.hidden = period !== 'year';
+    document.querySelector('#statistics-chart-title').textContent = tr(period === 'day' ? '每小时 Token' : '每日 Token');
+    if (period === 'year') { heatmap.replaceChildren(); const maxDay = Math.max(1, ...hours); hours.forEach((count, index) => { const cell = element('span', 'statistics-heatmap-cell'); cell.dataset.level = count ? Math.min(4, Math.ceil(count / maxDay * 4)) : 0; cell.title = `${data.buckets[index]} · ${number(count)} Token`; cell.setAttribute('aria-label', cell.title); heatmap.append(cell); }); }
     const max = Math.max(1, ...hours);
     chart.setAttribute('aria-label', hours.map((count, index) => `${data.buckets[index]} ${period === 'day' ? '点' : ''} ${number(count)} Token`).join('，'));
     for (let hour = 0; hour < hours.length; hour++) {
@@ -661,6 +664,17 @@ document.querySelector('#configure').addEventListener('click', async () => {
         message('Key 配置已覆盖新旧会话。请完全退出并重开 Codex，在原会话发送消息验证；聊天记录不变。');
     } catch (error) { message(error.message, true); }
     finally { busy = false; await updateHealth(); render(); }
+});
+document.querySelector('#test-config').addEventListener('click', async () => {
+    const button = document.querySelector('#test-config');
+    const status = document.querySelector('#config-test-status');
+    button.disabled = true; status.textContent = tr('正在检查 config.toml 和 auth.json…');
+    try {
+        const result = await call('configTest');
+        status.textContent = result.ok ? tr('配置文件测试通过。') : tr('配置文件不匹配，请重新应用配置。');
+        status.className = result.ok ? 'muted good' : 'muted danger';
+    } catch (error) { status.textContent = tr(`配置文件测试失败：${error.message}`); status.className = 'muted danger'; }
+    finally { button.disabled = false; }
 });
 document.querySelector('#open-settings').addEventListener('click', async () => { const result = await call('settings'); renderCapacityRetrySettings(result.capacity_retry); document.querySelector('#settings-dialog').showModal(); });
 document.querySelector('#save-settings').addEventListener('click', async event => { event.preventDefault(); const status = document.querySelector('#settings-status'); try { const min = Number(document.querySelector('#capacity-retry-min').value), max = Number(document.querySelector('#capacity-retry-max').value), maxRetries = Number(document.querySelector('#capacity-retry-max-retries').value); const result = await call('settings', { capacity_retry: { enabled: document.querySelector('#capacity-retry-enabled').checked, min_seconds: min, max_seconds: max, max_retries: maxRetries } }); renderCapacityRetrySettings(result.capacity_retry); document.querySelector('#settings-dialog').close(); message('重试设置已保存。'); } catch (error) { status.textContent = error.message; } });
