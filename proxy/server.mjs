@@ -591,7 +591,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 }
                 if (url.pathname === '/admin/settings') {
                     const capacityRetry = normalizeCapacityRetrySettings(input.capacity_retry);
-                    await locked(path.join(directory, 'state.mutex'), async () => { const latest = await readJSON(statePath); latest.capacity_retry = capacityRetry; await writeJSON(statePath, latest); });
+                    await locked(path.join(directory, 'state.mutex'), async () => { const latest = await readJSON(statePath); latest.capacity_retry = capacityRetry; await writeJSON(statePath, latest); initial.capacity_retry = capacityRetry; });
                     sendJSON(response, 200, { ok: true, capacity_retry: capacityRetry }); return;
                 }
                 if (url.pathname === '/admin/priority') {

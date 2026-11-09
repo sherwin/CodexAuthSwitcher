@@ -62,6 +62,16 @@ test('loopback binding, local authentication, browser origin rejection, and rout
     assert.equal(calls, 0);
 });
 
+test('saving retry settings updates the running gateway immediately', async t => {
+    const f = await gatewayFixture(t, async () => { throw new Error('unexpected upstream'); });
+    const save = await f.call('/admin/settings', { capacity_retry: { enabled: true, min_seconds: 2, max_seconds: 4, max_retries: 3 } });
+    assert.equal(save.status, 200);
+    assert.deepEqual((await save.json()).capacity_retry, { enabled: true, min_seconds: 2, max_seconds: 4, max_retries: 3 });
+    const settings = await f.call('/admin/settings');
+    assert.equal(settings.status, 200);
+    assert.deepEqual((await settings.json()).capacity_retry, { enabled: true, min_seconds: 2, max_seconds: 4, max_retries: 3 });
+});
+
 test('switch during a live stream pins the existing request and routes the next request to B', async t => {
     const targets = [];
     let finishFirst;
