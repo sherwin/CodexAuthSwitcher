@@ -100,7 +100,7 @@ npm run dist
 npm run dist:win
 ```
 
-macOS 解包应用位于 `dist/mac-arm64/Codex Auth Switcher.app`；`npm run pack` 构建完成后会自动打开新应用（CI 环境仅输出路径）。`npm run dist:win` 生成 Windows x64 NSIS 安装包和 zip 包；请在 Windows 上运行 `Codex Auth Switcher Setup 1.1.0.exe` 安装，不要直接运行解包目录。
+macOS 解包应用位于 `dist/mac-arm64/Codex Auth Switcher.app`；`npm run pack` 构建完成后会退出旧实例并自动打开新应用（CI 环境仅输出路径）。`npm run dist:win` 生成 Windows x64 NSIS 安装包和 zip 包；请在 Windows 上运行 `Codex Auth Switcher Setup 1.1.0.exe` 安装，不要直接运行解包目录。
 
 ### 数据与安全
 
@@ -211,7 +211,7 @@ npm run dist
 npm run dist:win
 ```
 
-The macOS unpacked app is generated at `dist/mac-arm64/Codex Auth Switcher.app`. `npm run pack` opens the newly built app after packaging (CI only prints the path). `npm run dist:win` generates a Windows x64 NSIS installer and zip package. Run `Codex Auth Switcher Setup 1.1.0.exe` on Windows to install the app; do not launch the unpacked directory directly.
+The macOS unpacked app is generated at `dist/mac-arm64/Codex Auth Switcher.app`. `npm run pack` quits the old instance and opens the newly built app after packaging (CI only prints the path). `npm run dist:win` generates a Windows x64 NSIS installer and zip package. Run `Codex Auth Switcher Setup 1.1.0.exe` on Windows to install the app; do not launch the unpacked directory directly.
 
 ### Data and security
 
