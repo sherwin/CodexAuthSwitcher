@@ -19,7 +19,7 @@
     "build:icons": "node scripts/generate-icons.cjs",
     "prepack": "npm run build:icons",
     "predist": "npm run build:icons",
-    "pack": "electron-builder --dir",
+    "pack": "electron-builder --dir && node scripts/open-packed-app.cjs",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win --x64"
   },
