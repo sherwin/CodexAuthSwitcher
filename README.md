@@ -49,7 +49,7 @@ Selected model is at capacity. Please try a different model.
 
 在“代理设置”中可调整：
 
-- 最大重试次数：`0–20`，默认 `5`
+- 最大重试次数：非负整数，默认 `5`，不设业务上限
 - 最短等待时间：默认 `1` 秒
 - 最长等待时间：默认 `5` 秒
 
@@ -160,7 +160,7 @@ The local proxy internally retries this response before returning it to Codex. `
 
 The **Proxy settings** dialog controls:
 
-- Max retries: `0–20`, default `5`
+- Max retries: any non-negative integer, default `5`
 - Minimum delay: default `1` second
 - Maximum delay: default `5` seconds
 

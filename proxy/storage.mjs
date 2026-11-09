@@ -15,7 +15,8 @@ export function normalizeCapacityRetrySettings(value) {
     const source = value && typeof value === 'object' ? value : {};
     const min = Math.min(60, Math.max(0.1, Number(source.min_seconds) || 1));
     const max = Math.min(60, Math.max(min, Number(source.max_seconds) || 5));
-    const maxRetries = Math.min(20, Math.max(0, Number.isFinite(Number(source.max_retries)) ? Math.floor(Number(source.max_retries)) : 5));
+    const retryCount = Number(source.max_retries);
+    const maxRetries = Number.isSafeInteger(retryCount) ? Math.max(0, retryCount) : 5;
     return { enabled: source.enabled !== false, min_seconds: min, max_seconds: max, max_retries: maxRetries };
 }
 export function normalizePrioritySettings(value) {
