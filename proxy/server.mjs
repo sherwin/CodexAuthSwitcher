@@ -292,7 +292,8 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                 throw new ProxyError('Management is available only on this computer.', 'local_admin_required', 403);
             }
             const state = await readJSON(statePath);
-            if (url.search) throw new ProxyError('Query parameters are unsupported.', 'unsupported_route', 404);
+            if (url.search && !(request.method === 'GET' && url.pathname === '/admin/statistics' &&
+                [...url.searchParams.keys()].every(key => ['period', 'start', 'end'].includes(key)))) throw new ProxyError('Query parameters are unsupported.', 'unsupported_route', 404);
             // Cursor performs these account and entitlement probes before it
             // opens the completion stream. They must terminate locally so a
             // fake local session is not rejected by api2/api3. Connect's
@@ -554,7 +555,7 @@ export async function createGateway(directory, { fetchUpstream = upstreamFetch()
                     });
                     files.push(usageAccount(entry.name, record));
                 }
-                sendJSON(response, 200, { ...await statistics.periods(),
+                sendJSON(response, 200, { ...await (url.searchParams.has('period') ? statistics.range(Object.fromEntries(url.searchParams)) : statistics.periods()),
                     files: files.sort((a, b) => a.name.localeCompare(b.name)), authDirectory: state.auth_directory });
                 return;
             }

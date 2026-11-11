@@ -38,6 +38,17 @@ test('web uses the original renderer and API logic for accounts, modes, statisti
     const statistics = await json('/api/statistics');
     assert.ok(statistics.periods.day); assert.ok(statistics.periods.week); assert.ok(statistics.periods.month);
     assert.equal(statistics.files.length, 2);
+    for (const period of ['ten-minutes', 'hour', 'natural-day', 'week', 'month', 'year']) {
+        const range = await json('/api/statistics?period=' + period);
+        assert.equal(range.period, period);
+        assert.ok(range.buckets.length > 0);
+        assert.equal(range.files.length, 2);
+    }
+    const end = Math.floor(Date.now() / 60000) * 60000;
+    const custom = await json('/api/statistics?period=custom&start=' + (end - 600000) + '&end=' + end);
+    assert.equal(custom.buckets.length, 10);
+    assert.equal((await f.request('/api/statistics?period=custom&start=0&end=0')).status, 400);
+    assert.equal((await f.request('/api/statistics?period=hour&unexpected=1')).status, 404);
     const preview = await json('/api/curl', { action: 'preview', target: '127.0.0.1' });
     assert.match(preview.command, /<LOCAL_PROXY_KEY>/); assert.ok(!preview.command.includes('fixture-proxy-key'));
     assert.match((await json('/api/curl', { action: 'copy', target: '127.0.0.1', stream: true })).command, /fixture-proxy-key/);

@@ -16,7 +16,7 @@ test('token counts use K M B with two decimals, promote rounded boundaries and p
 
 test('statistics columns use immediate tooltips with exact counts and keyboard focus instead of native titles', async () => {
     const source = await readFile(new URL('../electron/renderer.js', import.meta.url), 'utf8');
-    const context = vm.createContext({ element: (tag, className, textContent) => ({ tag, className, textContent,
+    const context = vm.createContext({ tr: value => value, element: (tag, className, textContent) => ({ tag, className, textContent,
         attributes: {}, children: [], setAttribute(name, value) { this.attributes[name] = value; },
         append(...children) { this.children.push(...children); } }) });
     vm.runInContext(source.slice(source.indexOf('const number ='), source.indexOf('function renderStatistics(')), context);
@@ -34,9 +34,10 @@ test('statistics columns use immediate tooltips with exact counts and keyboard f
         assert.equal(tooltip.textContent, `${label}\n${context.tokenNumber(count)} Token\n精确用量 ${count.toLocaleString('zh-CN')}`);
     }
     const css = await readFile(new URL('../electron/style.css', import.meta.url), 'utf8');
-    assert.match(css, /\.hour-column:hover \.hour-tooltip,\.hour-column:focus-visible \.hour-tooltip\{display:block\}/);
-    assert.match(css, /\.hour-column:hover,\.hour-column:focus-visible\{[^}]*box-shadow:/);
-    assert.match(css, /\.hour-tooltip\{[^}]*pointer-events:none/);
+    assert.match(css, /\.statistics-floating-tooltip\{[^}]*position:fixed/);
+    assert.match(css, /\.statistics-floating-tooltip\{[^}]*pointer-events:none/);
+    assert.match(source, /document.body.appendChild\(element\('div', 'statistics-floating-tooltip'\)\)/);
+
 });
 
 test('reset cards show only the nearest valid expiry across ISO, seconds and milliseconds', async () => {
@@ -209,4 +210,34 @@ test('single account refresh shares duplicate requests, preserves other accounts
     finish({ data: { outdated: true } });
     await outdated;
     assert.equal(usage.get('a.json').data.refreshed, true);
+});
+
+test('quick statistics changes ignore stale responses and preserve the last valid range on failure', async () => {
+    const source = await readFile(new URL('../electron/renderer.js', import.meta.url), 'utf8');
+    const nodes = new Map();
+    const node = selector => {
+        if (!nodes.has(selector)) nodes.set(selector, { attributes: {}, setAttribute(key, value) { this.attributes[key] = value; } });
+        return nodes.get(selector);
+    };
+    const pending = [];
+    const context = vm.createContext({ document: { querySelector: node, querySelectorAll: () => [] },
+        tr: value => value, hideStatisticsTooltip() {}, renderStatistics() {},
+        call: (action, input) => new Promise((resolve, reject) => pending.push({ action, input, resolve, reject })) });
+    vm.runInContext("let statisticsRequest = 0, statisticsPeriod = 'hour', statisticsLoading = false, statisticsData, statisticsCustomRange;\n" +
+        source.slice(source.indexOf('async function refreshStatistics()'), source.indexOf('// 提示挂在 body')), context);
+    const first = context.refreshStatistics();
+    vm.runInContext("statisticsPeriod = 'ten-minutes'", context);
+    const second = context.refreshStatistics();
+    pending[1].resolve({ period: 'ten-minutes', granularity: 'minute', buckets: [] });
+    await second;
+    pending[0].resolve({ period: 'hour', granularity: 'minute', buckets: [] });
+    await first;
+    assert.equal(vm.runInContext('statisticsData.period', context), 'ten-minutes');
+    vm.runInContext("statisticsPeriod = 'week'", context);
+    const failed = context.refreshStatistics();
+    pending[2].reject(Error('offline'));
+    await failed;
+    assert.equal(vm.runInContext('statisticsPeriod', context), 'ten-minutes');
+    assert.equal(node('#refresh-statistics').disabled, false);
+    assert.match(node('#statistics-status').textContent, /offline/);
 });

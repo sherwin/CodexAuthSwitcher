@@ -27,3 +27,17 @@ test('reading priority and settings never submits an empty save', async () => {
     await api.call('configure');
     assert.equal(requests.at(-1).method, 'POST');
 });
+
+test('statistics ranges use GET query parameters in the web bridge', async () => {
+    const source = await readFile(new URL('../proxy/web-bridge.js', import.meta.url), 'utf8');
+    const requests = [];
+    const context = vm.createContext({ window: {}, URLSearchParams, fetch: async (url, options) => {
+        requests.push({ url, ...options });
+        return { ok: true, status: 200, json: async () => ({ period: 'custom' }) };
+    } });
+    vm.runInContext(source.slice(0, source.indexOf('    let directoryOpen')) + '\n})();', context);
+    await context.window.authSwitcher.call('statistics', { period: 'custom', start: 60000, end: 120000 });
+    assert.equal(requests[0].url, '/api/statistics?period=custom&start=60000&end=120000');
+    assert.equal(requests[0].method, 'GET');
+    assert.equal(requests[0].body, undefined);
+});

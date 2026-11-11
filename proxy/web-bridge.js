@@ -34,7 +34,8 @@
             const route = routes[action];
             if (!route) return { ok: false, error: tr('不支持的操作') };
             const readSettings = (action === 'priority' || action === 'settings') && input === undefined;
-            try { return { ok: true, result: await request(route[0], route[1] && !readSettings ? input || {} : undefined) }; }
+            const target = action === 'statistics' && input ? route[0] + '?' + new URLSearchParams(input) : route[0];
+            try { return { ok: true, result: await request(target, route[1] && !readSettings ? input || {} : undefined) }; }
             catch (error) { return { ok: false, error: error.message }; }
         },
         async chooseDirectory() {

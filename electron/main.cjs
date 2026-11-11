@@ -72,9 +72,11 @@ else {
                 select: '/admin/select', deepseek: '/admin/deepseek', codexApi: '/admin/codex-api', configure: '/admin/configure', authFile: '/admin/auth-file', unconfigure: '/admin/unconfigure' };
             if (!Object.hasOwn(allowed, action)) throw new Error('Unsupported action.');
             try {
-                const route = action === 'requestLog' ? `${allowed[action]}/${Number(input?.id) || 0}` : allowed[action];
+                const statisticsQuery = action === 'statistics' && input ? '?' + new URLSearchParams(Object.fromEntries(
+                    ['period', 'start', 'end'].filter(key => input[key] !== undefined).map(key => [key, String(input[key])]))).toString() : '';
+                const route = action === 'statistics' ? allowed[action] + statisticsQuery : action === 'requestLog' ? `${allowed[action]}/${Number(input?.id) || 0}` : allowed[action];
                 const result = await service.localCall(directory, route,
-                    ['status', 'accounts', 'statistics', 'configTest', 'requestLogs', 'requestLog', 'priority'].includes(action) && input === undefined ? undefined : action === 'deepseek'
+                    ['status', 'accounts', 'statistics', 'configTest', 'requestLogs', 'requestLog', 'priority'].includes(action) && (input === undefined || action === 'statistics') ? undefined : action === 'deepseek'
                         ? { name: input?.name, base_url: input?.base_url, api_key: input?.api_key, fixed_model: input?.fixed_model, edit: input?.edit === true }
                         : action === 'settings' || action === 'priority' || action === 'requestLogs' ? input : action === 'requestLog' ? undefined
                         : { name: typeof input?.name === 'string' ? input.name : undefined });

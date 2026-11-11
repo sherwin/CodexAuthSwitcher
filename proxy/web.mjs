@@ -102,10 +102,11 @@ export async function createWeb({ directory = defaultDirectory, password, host =
                 catch (e) { if (e.code !== 'ENOENT') throw e; }
                 await writeJSON(file, record); send(200, { ok: true }); return;
             }
-            const route = routes.get(req.method + ' ' + req.url);
+            const requestUrl = new URL(req.url, 'http://localhost');
+            const route = routes.get(req.method + ' ' + (requestUrl.pathname === '/api/statistics' ? requestUrl.pathname : req.url));
             if (!route) return send(404, { error: 'Not found' });
             const data = req.method === 'POST' ? await body(req) : undefined;
-            send(200, await call(route, data));
+            send(200, await call(route + (requestUrl.pathname === '/api/statistics' ? requestUrl.search : ''), data));
         } catch (error) {
             send(error.status || 400, { error: error instanceof ProxyError ? error.message : error.code || 'operation_failed' });
         }

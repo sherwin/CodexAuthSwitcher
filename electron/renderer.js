@@ -16,20 +16,10 @@ let statisticsLoading = false;
 let statisticsPeriod = 'natural-day';
 let statisticsCustomRange = null;
 const statisticsPeriodConfig = {
-    hour: { data: 'day', label: '近 1 小时', chart: '每小时 Token' },
-    'ten-minutes': { data: 'day', label: '近 10 分钟', chart: '每小时 Token' },
-    'natural-day': { data: 'day', label: '近 1 自然日', chart: '每小时 Token' },
-    week: { data: 'week', label: '近一周', chart: '每日 Token' },
-    month: { data: 'month', label: '近一个月', chart: '每日 Token' },
-    year: { data: 'year', label: '过去一年', chart: '每日 Token' },
-    total: { data: 'total', label: '总', chart: '每日 Token' }
+    hour: '近 1 小时', 'natural-day': '近 1 自然日', 'ten-minutes': '近 10 分钟',
+    week: '近一周', month: '近一个月', year: '过去一年', custom: '自定义'
 };
-function customStatisticsConfig() {
-    if (!statisticsCustomRange) return statisticsPeriodConfig['natural-day'];
-    const duration = statisticsCustomRange.end - statisticsCustomRange.start;
-    const data = duration <= 2 * 86400000 ? 'day' : duration <= 8 * 86400000 ? 'week' : duration <= 31 * 86400000 ? 'month' : 'year';
-    return { data, label: '自定义', chart: data === 'day' ? '每小时 Token' : data === 'year' ? '每日 Token' : '每日 Token' };
-}
+let statisticsRequest = 0;
 let notificationTimer;
 let lastHealthError;
 let codexMode;
@@ -162,24 +152,22 @@ function statisticsColumn(label, count, max, caption) {
     const meter = element('meter', 'hour-meter');
     meter.min = 0; meter.max = max; meter.value = count;
     meter.setAttribute('aria-label', description);
-    const tooltip = element('span', 'hour-tooltip', `${label}\n${tokenNumber(count)} Token\n精确用量 ${number(count)}`);
+    const tooltip = element('span', 'hour-tooltip', `${label}\n${tokenNumber(count)} Token\n${tr('精确用量')} ${number(count)}`);
     tooltip.setAttribute('aria-hidden', 'true');
     column.append(meter, element('span', 'hour-label', caption), tooltip);
     return column;
 }
 function renderStatistics() {
     if (!statisticsData) return;
-    const period = statisticsPeriodConfig[statisticsPeriod] || statisticsPeriod === 'custom' ? statisticsPeriod : 'natural-day';
-    const config = period === 'custom' ? customStatisticsConfig() : statisticsPeriodConfig[period];
-    for (const button of document.querySelectorAll('#statistics-period button')) button.setAttribute('aria-pressed', String(button.dataset.period === period));
-    const dataKey = config.data;
-    const data = statisticsData.periods?.[dataKey] || statisticsData;
+    const data = statisticsData;
+    const period = data.period;
+    for (const button of document.querySelectorAll('#statistics-period button')) button.setAttribute('aria-pressed', String(button.dataset.period === statisticsPeriod));
     if (!data || !Array.isArray(data.accounts) || !data.totals) {
         document.querySelector('#statistics-status').textContent = tr('统计数据格式不完整，请刷新代理后重试。');
         return;
     }
     const files = statisticsData.files || [];
-    const historical = new Map(Object.values(statisticsData.periods || { day: data }).flatMap(item => item.accounts || []).map(item => [item.id, item]));
+    const historical = new Map(data.accounts.map(item => [item.id, item]));
     const available = new Map(files.map(file => ['file:' + file.name, file]));
     for (const account of historical.values()) {
         if (!files.some(file => file.id === account.id)) available.set('history:' + account.id, { ...account, name: account.name + '（历史）' });
@@ -198,8 +186,8 @@ function renderStatistics() {
     const filter = available.get(selected);
     const rows = selected === 'all' ? [...current.values()] : [{ ...(current.get(filter.id) || filter), name: filter.name }];
     const totals = selected === 'all' ? data.totals : rows[0];
-    document.querySelector('#statistics-title').textContent = tr(`${config.label} Token 用量`);
-    document.querySelector('#statistics-day').textContent = period === 'total' ? tr('全部已保存用量 · 数据保存在本机') : period === 'custom' && statisticsCustomRange ? tr(`${new Date(statisticsCustomRange.start).toLocaleString()} 至 ${new Date(statisticsCustomRange.end).toLocaleString()} · 自定义范围 · 数据保存在本机`) : tr(`${data.start} 至 ${data.end} · 北京时间 · ${config.label} · 数据保存在本机`);
+    document.querySelector('#statistics-title').textContent = `${tr(statisticsPeriodConfig[period])} · ${tr('Token 用量')}`;
+    document.querySelector('#statistics-day').textContent = `${statisticsTime(data.start)} – ${statisticsTime(data.end)} · ${tr('北京时间 · 数据保存在本机')}`;
     const summary = document.querySelector('#statistics-summary');
     summary.replaceChildren(metric('总 Token', tokenNumber(totals?.total_tokens), '已收到上游用量', 'good'),
         metric('输入 Token', tokenNumber(totals?.input_tokens), `其中缓存 ${tokenNumber(totals?.cached_tokens)}`),
@@ -211,19 +199,33 @@ function renderStatistics() {
     document.querySelector('#statistics-coverage').textContent = totals?.unknown_requests
         ? tr(`${number(totals.unknown_requests)} 次请求未收到完整用量（中断、失败或上游未提供），总 Token 可能低于实际消耗。`)
         : tr('无未知用量请求。未经过本地代理的调用不在统计范围内。');
+    if (data.incomplete_history) document.querySelector('#statistics-coverage').textContent += ' ' + tr('部分旧记录只有整日汇总，无法计入局部时间范围；此范围的历史统计可能不完整。');
+    hideStatisticsTooltip();
     const chart = document.querySelector('#statistics-hours');
     const heatmap = document.querySelector('#statistics-heatmap');
-    chart.replaceChildren();
-    const hours = totals?.buckets || data.buckets.map(() => 0);
-    chart.hidden = period === 'year' || period === 'total'; heatmap.hidden = period !== 'year';
-    document.querySelector('#statistics-chart-title').textContent = tr(config.chart);
-    if (period === 'year') { heatmap.replaceChildren(); const maxDay = Math.max(1, ...hours); hours.forEach((count, index) => { const label = `${data.buckets[index]} · ${tokenNumber(count)} Token（${number(count)}）`; const cell = element('span', 'statistics-heatmap-cell'); cell.dataset.level = count ? Math.min(4, Math.ceil(count / maxDay * 4)) : 0; cell.setAttribute('aria-label', label); cell.tabIndex = 0; const tooltip = element('span', 'statistics-heatmap-tooltip', label); tooltip.setAttribute('aria-hidden', 'true'); cell.append(tooltip); heatmap.append(cell); }); }
-    const max = Math.max(1, ...hours);
-    chart.setAttribute('aria-label', hours.map((count, index) => `${data.buckets[index]} ${dataKey === 'day' ? '点' : ''} ${number(count)} Token`).join('，'));
-    for (let hour = 0; hour < hours.length; hour++) {
-        chart.append(statisticsColumn(dataKey === 'day' ? hour + ':00–' + hour + ':59' : data.buckets[hour],
-            hours[hour], max, dataKey === 'day' ? data.buckets[hour] : data.buckets[hour].slice(-2)));
-    }
+    chart.replaceChildren(); heatmap.replaceChildren();
+    const values = totals?.buckets || data.buckets.map(() => 0);
+    const annual = period === 'year' || (data.granularity === 'day' && values.length > 90);
+    chart.hidden = annual; heatmap.hidden = !annual;
+    document.querySelector('#statistics-chart-title').textContent = tr({ minute: '每分钟 Token', hour: '每小时 Token', day: '每日 Token' }[data.granularity]);
+    const max = Math.max(1, ...values);
+    const captions = data.buckets.map(bucket => statisticsTime(bucket, data.granularity === 'day' ? 'day' : 'time'));
+    chart.setAttribute('aria-label', values.map((count, index) => `${statisticsTime(data.buckets[index])} · ${tokenNumber(count)} Token`).join(', '));
+    values.forEach((count, index) => {
+        const label = statisticsTime(data.buckets[index], data.granularity === 'day' ? 'day' : 'full');
+        if (annual) {
+            const cell = element('span', 'statistics-heatmap-cell');
+            cell.dataset.level = count ? Math.min(4, Math.ceil(count / max * 4)) : 0;
+            cell.tabIndex = 0;
+            cell.setAttribute('aria-label', `${label} · ${tokenNumber(count)} Token（${number(count)}）`);
+            cell.append(element('span', 'statistics-heatmap-tooltip', `${label}\n${tokenNumber(count)} Token\n${tr('精确用量')} ${number(count)}`));
+            heatmap.append(cell);
+        } else {
+            // 标签稀疏展示，完整日期时间仍可通过即时提示和键盘聚焦读取。
+            const caption = index % Math.max(1, Math.ceil(values.length / 12)) === 0 || index === values.length - 1 ? captions[index] : '';
+            chart.append(statisticsColumn(label, count, max, caption));
+        }
+    });
     const table = document.querySelector('#statistics-rows');
     table.replaceChildren();
     for (const account of rows) {
@@ -239,17 +241,66 @@ function renderStatistics() {
     if (!rows.length) { const row = element('tr'); const cell = element('td', 'muted', '所选周期和账号没有经过代理的请求。'); cell.colSpan = 6; row.append(cell); table.append(row); }
 }
 
+function statisticsTime(value, format = 'full') {
+    const locale = window.i18n?.language === 'zh' ? 'zh-CN' : 'en-US';
+    return new Intl.DateTimeFormat(locale, { timeZone: 'Asia/Shanghai', hourCycle: 'h23',
+        ...(format !== 'time' ? { year: 'numeric', month: '2-digit', day: '2-digit' } : {}),
+        ...(format !== 'day' ? { hour: '2-digit', minute: '2-digit' } : {}) }).format(new Date(value));
+}
 async function refreshStatistics() {
-    if (statisticsLoading) return;
+    const request = ++statisticsRequest;
+    const period = statisticsPeriod;
     statisticsLoading = true;
+    hideStatisticsTooltip();
     const button = document.querySelector('#refresh-statistics');
     button.disabled = true;
+    document.querySelector('#statistics-page').setAttribute('aria-busy', 'true');
+    for (const tab of document.querySelectorAll('#statistics-period button')) tab.setAttribute('aria-pressed', String(tab.dataset.period === period));
+    document.querySelector('#statistics-status').textContent = tr('正在加载统计…');
     try {
-        statisticsData = await call('statistics');
+        const input = { period, ...(period === 'custom' ? statisticsCustomRange : {}) };
+        const data = await call('statistics', input);
+        // 快速切换时，仅最后一次请求可以更新界面。
+        if (request !== statisticsRequest) return;
+        if (data.period !== period || !data.granularity || !Array.isArray(data.buckets)) throw Error(tr('统计接口版本过旧，请重启代理服务。'));
+        statisticsData = data;
         renderStatistics();
         document.querySelector('#statistics-status').textContent = tr('统计已更新，每 10 秒自动刷新。');
-    } catch (error) { document.querySelector('#statistics-status').textContent = tr(`统计读取失败：${error.message}。显示数据可能不是最新。`); }
-    finally { statisticsLoading = false; button.disabled = false; }
+    } catch (error) {
+        if (request === statisticsRequest) {
+            if (statisticsData) statisticsPeriod = statisticsData.period;
+            else statisticsPeriod = 'natural-day';
+            for (const tab of document.querySelectorAll('#statistics-period button')) tab.setAttribute('aria-pressed', String(tab.dataset.period === statisticsPeriod));
+            document.querySelector('#statistics-status').textContent = tr(`统计读取失败：${error.message}。显示数据可能不是最新。`);
+        }
+    } finally {
+        if (request === statisticsRequest) {
+            statisticsLoading = false; button.disabled = false;
+            document.querySelector('#statistics-page').setAttribute('aria-busy', 'false');
+        }
+    }
+}
+
+// 提示挂在 body 上并使用固定定位，避免网格滚动容器裁切及滚动尺寸变化。
+let statisticsTooltip;
+let statisticsTooltipTarget;
+function hideStatisticsTooltip() {
+    if (statisticsTooltip) statisticsTooltip.hidden = true;
+    statisticsTooltipTarget = null;
+}
+function showStatisticsTooltip(target) {
+    const content = target.querySelector('.hour-tooltip,.statistics-heatmap-tooltip');
+    if (!content) return;
+    statisticsTooltipTarget = target;
+    statisticsTooltip ||= document.body.appendChild(element('div', 'statistics-floating-tooltip'));
+    statisticsTooltip.textContent = content.textContent;
+    statisticsTooltip.hidden = false;
+    const rect = target.getBoundingClientRect();
+    const tip = statisticsTooltip.getBoundingClientRect();
+    const left = Math.max(8, Math.min(rect.left + rect.width / 2 - tip.width / 2, window.innerWidth - tip.width - 8));
+    const top = rect.top >= tip.height + 16 ? rect.top - tip.height - 8 : Math.min(rect.bottom + 8, window.innerHeight - tip.height - 8);
+    statisticsTooltip.style.left = `${left}px`;
+    statisticsTooltip.style.top = `${Math.max(8, top)}px`;
 }
 
 async function updateCurl() {
@@ -768,6 +819,7 @@ document.querySelector('#open-statistics').addEventListener('click', () => {
 });
 document.querySelector('#back-home').addEventListener('click', () => {
     statisticsVisible = false;
+    hideStatisticsTooltip();
     document.querySelector('#home-page').hidden = false;
     document.querySelector('#statistics-page').hidden = true;
 });
@@ -777,31 +829,47 @@ document.querySelector('#statistics-period').addEventListener('click', event => 
     const button = event.target.closest('button[data-period]');
     if (!button) return;
     if (button.dataset.period === 'custom') {
-        const dialog = document.querySelector('#statistics-custom-dialog');
-        const now = new Date();
-        const earlier = new Date(now.getTime() - 86400000);
-        const localValue = value => new Date(value - value.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-        document.querySelector('#statistics-custom-start').value ||= localValue(earlier);
-        document.querySelector('#statistics-custom-end').value ||= localValue(now);
-        dialog.showModal();
+        const end = Math.floor(Date.now() / 60000) * 60000;
+        const start = end - 86400000;
+        const inputValue = value => new Date(value + 8 * 3600000).toISOString().slice(0, 16);
+        document.querySelector('#statistics-custom-start').value = inputValue(statisticsCustomRange?.start || start);
+        document.querySelector('#statistics-custom-end').value = inputValue(statisticsCustomRange?.end || end);
+        document.querySelector('#statistics-custom-status').textContent = tr('北京时间；最多选择 366 天，结束时间不可晚于当前时间。');
+        document.querySelector('#statistics-custom-dialog').showModal();
         return;
     }
     statisticsPeriod = button.dataset.period;
-    renderStatistics();
+    refreshStatistics();
 });
 document.querySelector('#statistics-custom-form').addEventListener('submit', event => {
-    const start = new Date(document.querySelector('#statistics-custom-start').value);
-    const end = new Date(document.querySelector('#statistics-custom-end').value);
-    const status = document.querySelector('#statistics-custom-status');
-    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) {
-        event.preventDefault();
-        status.textContent = tr('结束时间必须晚于开始时间。');
+    if (event.submitter?.value === 'cancel') return;
+    event.preventDefault();
+    const start = Date.parse(document.querySelector('#statistics-custom-start').value + ':00+08:00');
+    const end = Date.parse(document.querySelector('#statistics-custom-end').value + ':00+08:00');
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || end > Date.now() || end - start > 366 * 86400000) {
+        document.querySelector('#statistics-custom-status').textContent = tr('请选择有效范围：结束时间晚于开始时间、不晚于当前时间，且跨度不超过 366 天。');
         return;
     }
-    statisticsCustomRange = { start: start.getTime(), end: end.getTime() };
+    statisticsCustomRange = { start, end };
     statisticsPeriod = 'custom';
-    renderStatistics();
+    document.querySelector('#statistics-custom-dialog').close();
+    refreshStatistics();
 });
+for (const id of ['#statistics-hours', '#statistics-heatmap']) {
+    const chart = document.querySelector(id);
+    for (const type of ['pointerover', 'focusin']) chart.addEventListener(type, event => {
+        const target = event.target.closest('.hour-column,.statistics-heatmap-cell');
+        if (target) showStatisticsTooltip(target);
+    });
+    chart.addEventListener('pointerleave', hideStatisticsTooltip);
+    chart.addEventListener('focusout', hideStatisticsTooltip);
+}
+window.addEventListener('resize', hideStatisticsTooltip);
+window.addEventListener('scroll', () => {
+    if (statisticsTooltipTarget && document.activeElement === statisticsTooltipTarget) showStatisticsTooltip(statisticsTooltipTarget);
+    else hideStatisticsTooltip();
+}, true);
+document.addEventListener('keydown', event => { if (event.key === 'Escape') hideStatisticsTooltip(); });
 document.querySelector('#statistics-period').addEventListener('keydown', event => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     const buttons = [...document.querySelectorAll('#statistics-period button')];
@@ -817,7 +885,7 @@ document.querySelector('#dismiss-notification').addEventListener('click', () => 
     clearTimeout(notificationTimer);
     document.querySelector('#notification').hidden = true;
 });
-setInterval(() => { if (statisticsVisible) refreshStatistics(); }, 10000);
+setInterval(() => { if (statisticsVisible && !statisticsLoading) refreshStatistics(); }, 10000);
 window.addEventListener('languagechange', () => {
     // 语言切换后重新渲染动态卡片、状态和当前页面，避免必须重启应用。
     window.i18n?.apply();

@@ -1,5 +1,14 @@
 (() => {
     const translations = {
+        'Token 用量': 'Token usage', 'Token 用量图表': 'Token usage chart', '每分钟 Token': 'Tokens per minute',
+        '自定义时间范围': 'Custom time range', '开始时间': 'Start time', '结束时间': 'End time', '应用': 'Apply',
+        '北京时间 · 数据保存在本机': 'Beijing time · data saved locally',
+        '正在加载统计…': 'Loading statistics…',
+        '统计接口版本过旧，请重启代理服务。': 'The statistics API is outdated. Restart the proxy service.',
+        '部分旧记录只有整日汇总，无法计入局部时间范围；此范围的历史统计可能不完整。': 'Some older records only have daily totals and cannot be included in partial-day ranges. Historical usage in this range may be incomplete.',
+        '北京时间；最多选择 366 天，结束时间不可晚于当前时间。': 'Beijing time. Select up to 366 days; the end must not be in the future.',
+        '请选择有效范围：结束时间晚于开始时间、不晚于当前时间，且跨度不超过 366 天。': 'Choose a valid range: end after start, not in the future, and no more than 366 days.',
+
         '本地代理与 Codex 连接配置，独立管理。': 'Manage the local proxy and Codex connection independently.',
         '用量统计': 'Usage', '请求记录': 'Request logs', '设置': 'Settings', '刷新额度': 'Refresh usage',
         '导入授权文件': 'Import auth files', '退出登录': 'Log out', '配置管理': 'Configuration',
@@ -33,7 +42,7 @@
         '请求体': 'Request body', '返回体': 'Response body', '记录详情': 'Log details', '清空': 'Clear',
         '上一页': 'Previous', '下一页': 'Next', '跳转': 'Go', '刷新记录': 'Refresh logs',
         '全部记录': 'All records', '仅失败': 'Failures only', '容量错误': 'Capacity errors', '网络/断开错误': 'Network/disconnect errors',
-        '今日': 'Today', '本周': 'This week', '本月': 'This month', '近 1 小时': 'Past hour', '近 1 自然日': 'Past calendar day', '近 10 分钟': 'Past 10 minutes', '近一周': 'Past week', '近一个月': 'Past month', '自定义': 'Custom', '过去 24 小时': 'Past 24 hours', '过去 7 天': 'Past 7 days', '过去 30 天': 'Past 30 days', '过去一年': 'Past year', '总': 'All time', '账号用量': 'Account usage',
+        '今日': 'Today', '本周': 'This week', '本月': 'This month', '近 1 小时': 'Past hour', '近 1 自然日': 'Today', '近 10 分钟': 'Past 10 minutes', '近一周': 'Past week', '近一个月': 'Past month', '自定义': 'Custom', '过去 24 小时': 'Past 24 hours', '过去 7 天': 'Past 7 days', '过去 30 天': 'Past 30 days', '过去一年': 'Past year', '总': 'All time', '账号用量': 'Account usage',
         '总 Token': 'Total tokens', '输入 Token': 'Input tokens', '输出 Token': 'Output tokens', '请求次数': 'Requests',
         '本机代理': 'Local proxy', '读取 Codex 连接方式…': 'Loading Codex connection mode…', '全部已保存用量 · 数据保存在本机': 'All saved usage · data stored locally',
         '当前账号': 'Current account', '重试设置已保存。': 'Retry settings saved.', '测试配置文件': 'Test config files', '正在检查 config.toml 和 auth.json…': 'Checking config.toml and auth.json…', '配置文件测试通过。': 'Configuration files passed.', '配置文件不匹配，请重新应用配置。': 'Configuration files do not match. Apply the configuration again.', '配置文件测试失败：': 'Configuration file test failed: ', '取消': 'Cancel', '保存设置': 'Save settings',
