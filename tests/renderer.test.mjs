@@ -14,6 +14,16 @@ test('token counts use K M B with two decimals, promote rounded boundaries and p
     }
 });
 
+test('request logs display Beijing time and seconds', async () => {
+    const source = await readFile(new URL('../electron/renderer.js', import.meta.url), 'utf8');
+    const context = vm.createContext({ window: { i18n: { language: 'zh' } }, Intl });
+    vm.runInContext(source.slice(source.indexOf('function requestLogTime'), source.indexOf('function openDeepSeek')), context);
+    assert.equal(context.requestLogTime('2026-10-24T00:00:00.000Z'), '2026/10/24 08:00:00');
+    assert.equal(context.requestDuration(1000), '1 s');
+    assert.equal(context.requestDuration(1234), '1.234 s');
+    assert.equal(context.requestDuration(12000), '12 s');
+});
+
 test('statistics columns use immediate tooltips with exact counts and keyboard focus instead of native titles', async () => {
     const source = await readFile(new URL('../electron/renderer.js', import.meta.url), 'utf8');
     const context = vm.createContext({ tr: value => value, element: (tag, className, textContent) => ({ tag, className, textContent,

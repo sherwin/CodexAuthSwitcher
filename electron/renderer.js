@@ -46,7 +46,7 @@ function renderRequestLogs() {
     document.querySelector('#request-logs-page-label').textContent = tr(`第 ${requestLogsPage} / ${requestLogsTotalPages} 页 · 共 ${requestLogsTotal} 条`);
     document.querySelector('#request-logs-prev').disabled = requestLogsPage <= 1; document.querySelector('#request-logs-next').disabled = requestLogsPage >= requestLogsTotalPages;
     document.querySelector('#request-logs-go').disabled = requestLogsLoading;
-    for (const item of requestLogs) { const button = element('button', `request-log-row ${item.success ? 'success' : 'failure'}`); button.type = 'button'; button.append(element('strong', '', `${item.method} ${item.path} · ${item.model || '模型未知'}`), element('span', '', `${item.startedAt} · HTTP ${item.status || '—'} · ${item.durationMs} ms · 尝试 ${item.attemptCount || 1}${item.errorCode ? ` · ${item.errorCode}` : ''}`)); button.onclick = () => showRequestLog(item.id); target.append(button); }
+    for (const item of requestLogs) { const button = element('button', `request-log-row ${item.success ? 'success' : 'failure'}`); button.type = 'button'; button.append(element('strong', '', `${item.method} ${item.path} · ${item.model || '模型未知'}`), element('span', '', `${requestLogTime(item.startedAt)} · HTTP ${item.status || '—'} · ${requestDuration(item.durationMs)} · 尝试 ${item.attemptCount || 1}${item.errorCode ? ` · ${item.errorCode}` : ''}`)); button.onclick = () => showRequestLog(item.id); target.append(button); }
     if (!requestLogs.length) target.append(element('p', 'muted', '暂无请求记录。'));
 }
 async function refreshRequestLogs(page = requestLogsPage) {
@@ -65,7 +65,20 @@ async function refreshRequestLogs(page = requestLogsPage) {
     } catch (error) { target.replaceChildren(element('p', 'card-status error', error.message)); }
     finally { requestLogsLoading = false; renderRequestLogs(); }
 }
-async function showRequestLog(id) { const detail = document.querySelector('#request-log-detail'); detail.setAttribute('aria-busy', 'true'); document.querySelector('#request-log-detail-title').textContent = tr('读取记录…'); document.querySelector('#request-log-request-body').textContent = tr('读取中…'); document.querySelector('#request-log-response-body').textContent = tr('读取中…'); try { const item = await call('requestLog', { id }); let events = item.errorEvents; try { events = JSON.parse(item.errorEvents || '[]'); } catch {} document.querySelector('#request-log-detail-title').textContent = tr(`记录 #${item.id} · ${item.method} ${item.path}`); document.querySelector('#request-log-detail-meta').textContent = tr(`${item.startedAt} · 模型 ${item.model || '未知'} · HTTP ${item.status || '—'} · ${item.durationMs} ms · 尝试 ${item.attemptCount || 1} · ${item.success ? '成功' : '失败'}${item.errorCode ? ` · ${item.errorCode}` : ''}${item.errorMessage ? ` · ${item.errorMessage}` : ''} · 错误事件 ${events.length}`); document.querySelector('#request-log-request-body').textContent = item.requestBody || '(空)'; document.querySelector('#request-log-response-body').textContent = (events.length ? `尝试错误：\n${JSON.stringify(events, null, 2)}\n\n` : '') + (item.responseBody || '(空)'); } catch (error) { document.querySelector('#request-log-detail-meta').textContent = tr(error.message); } finally { detail.removeAttribute('aria-busy'); } }
+async function showRequestLog(id) { const detail = document.querySelector('#request-log-detail'); detail.setAttribute('aria-busy', 'true'); document.querySelector('#request-log-detail-title').textContent = tr('读取记录…'); document.querySelector('#request-log-request-body').textContent = tr('读取中…'); document.querySelector('#request-log-response-body').textContent = tr('读取中…'); try { const item = await call('requestLog', { id }); let events = item.errorEvents; try { events = JSON.parse(item.errorEvents || '[]'); } catch {} document.querySelector('#request-log-detail-title').textContent = tr(`记录 #${item.id} · ${item.method} ${item.path}`); document.querySelector('#request-log-detail-meta').textContent = tr(`${requestLogTime(item.startedAt)} · 模型 ${item.model || '未知'} · HTTP ${item.status || '—'} · ${requestDuration(item.durationMs)} · 尝试 ${item.attemptCount || 1} · ${item.success ? '成功' : '失败'}${item.errorCode ? ` · ${item.errorCode}` : ''}${item.errorMessage ? ` · ${item.errorMessage}` : ''} · 错误事件 ${events.length}`); document.querySelector('#request-log-request-body').textContent = item.requestBody || '(空)'; document.querySelector('#request-log-response-body').textContent = (events.length ? `尝试错误：\n${JSON.stringify(events, null, 2)}\n\n` : '') + (item.responseBody || '(空)'); } catch (error) { document.querySelector('#request-log-detail-meta').textContent = tr(error.message); } finally { detail.removeAttribute('aria-busy'); } }
+
+function requestLogTime(value) {
+    const parsed = new Date(value);
+    if (!Number.isFinite(parsed.getTime())) return '时间不可用';
+    return new Intl.DateTimeFormat(window.i18n?.language === 'zh' ? 'zh-CN' : 'en-US', {
+        timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+    }).format(parsed);
+}
+function requestDuration(value) {
+    const seconds = Math.max(0, Number(value) || 0) / 1000;
+    return `${seconds.toFixed(seconds < 10 ? 3 : 2).replace(/\.?(0+)$/, '')} s`;
+}
 
 function openDeepSeek(item) {
     const form = document.querySelector('#deepseek-form');
