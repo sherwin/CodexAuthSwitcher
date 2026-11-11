@@ -73,17 +73,15 @@ export class TokenStatistics {
         });
     }
     async periods(now = Date.now()) {
-        const { day } = beijingTime(now);
+        const { day, hour: currentHour } = beijingTime(now);
         const date = new Date(day + 'T00:00:00Z');
-        const weekStart = new Date(date.getTime() - ((date.getUTCDay() + 6) % 7) * dayMilliseconds);
-        const monthStart = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
-        const monthEnd = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0));
+        const rollingStart = days => new Date(date.getTime() - (days - 1) * dayMilliseconds);
         const dates = (start, end) => {
             const result = [];
             for (let time = start.getTime(); time <= end.getTime(); time += dayMilliseconds) result.push(new Date(time).toISOString().slice(0, 10));
             return result;
         };
-        const ranges = { day: [day], week: dates(weekStart, new Date(weekStart.getTime() + 6 * dayMilliseconds)), month: dates(monthStart, monthEnd), year: dates(new Date(date.getTime() - 364 * dayMilliseconds), date) };
+        const ranges = { day: dates(rollingStart(2), date), week: dates(rollingStart(7), date), month: dates(rollingStart(30), date), year: dates(rollingStart(365), date) };
         const snapshots = new Map();
         for (const current of [...new Set(Object.values(ranges).flat())].sort()) {
             if (current > day) continue;
@@ -104,7 +102,14 @@ export class TokenStatistics {
                     target.name = source.name;
                     target.aliases = [...new Set([...target.aliases, ...(source.aliases || [source.name])])];
                     for (const field of fields) target[field] += source[field];
-                    if (period === 'day') target.buckets = [...source.hours];
+                    if (period === 'day') {
+                        const offset = days.indexOf(current);
+                        for (let hour = 0; hour < hourCount; hour++) {
+                            const elapsed = offset * hourCount + hour;
+                            const bucket = elapsed - (hourCount - currentHour - 1);
+                            if (bucket >= 0 && bucket < hourCount) target.buckets[bucket] += source.hours[hour];
+                        }
+                    }
                     else target.buckets[days.indexOf(current)] += source.total_tokens;
                 }
             }

@@ -13,7 +13,23 @@ let addressSignature;
 let statisticsData;
 let statisticsVisible = false;
 let statisticsLoading = false;
-let statisticsPeriod = 'day';
+let statisticsPeriod = 'natural-day';
+let statisticsCustomRange = null;
+const statisticsPeriodConfig = {
+    hour: { data: 'day', label: '近 1 小时', chart: '每小时 Token' },
+    'ten-minutes': { data: 'day', label: '近 10 分钟', chart: '每小时 Token' },
+    'natural-day': { data: 'day', label: '近 1 自然日', chart: '每小时 Token' },
+    week: { data: 'week', label: '近一周', chart: '每日 Token' },
+    month: { data: 'month', label: '近一个月', chart: '每日 Token' },
+    year: { data: 'year', label: '过去一年', chart: '每日 Token' },
+    total: { data: 'total', label: '总', chart: '每日 Token' }
+};
+function customStatisticsConfig() {
+    if (!statisticsCustomRange) return statisticsPeriodConfig['natural-day'];
+    const duration = statisticsCustomRange.end - statisticsCustomRange.start;
+    const data = duration <= 2 * 86400000 ? 'day' : duration <= 8 * 86400000 ? 'week' : duration <= 31 * 86400000 ? 'month' : 'year';
+    return { data, label: '自定义', chart: data === 'day' ? '每小时 Token' : data === 'year' ? '每日 Token' : '每日 Token' };
+}
 let notificationTimer;
 let lastHealthError;
 let codexMode;
@@ -153,9 +169,11 @@ function statisticsColumn(label, count, max, caption) {
 }
 function renderStatistics() {
     if (!statisticsData) return;
-    const period = statisticsPeriod;
+    const period = statisticsPeriodConfig[statisticsPeriod] || statisticsPeriod === 'custom' ? statisticsPeriod : 'natural-day';
+    const config = period === 'custom' ? customStatisticsConfig() : statisticsPeriodConfig[period];
     for (const button of document.querySelectorAll('#statistics-period button')) button.setAttribute('aria-pressed', String(button.dataset.period === period));
-    const data = statisticsData.periods?.[period] || statisticsData;
+    const dataKey = config.data;
+    const data = statisticsData.periods?.[dataKey] || statisticsData;
     if (!data || !Array.isArray(data.accounts) || !data.totals) {
         document.querySelector('#statistics-status').textContent = tr('统计数据格式不完整，请刷新代理后重试。');
         return;
@@ -180,8 +198,8 @@ function renderStatistics() {
     const filter = available.get(selected);
     const rows = selected === 'all' ? [...current.values()] : [{ ...(current.get(filter.id) || filter), name: filter.name }];
     const totals = selected === 'all' ? data.totals : rows[0];
-    document.querySelector('#statistics-title').textContent = tr(`${{ day: '今日', week: '本周', month: '本月', year: '过去一年', total: '总' }[period]} Token 用量`);
-    document.querySelector('#statistics-day').textContent = period === 'total' ? tr('全部已保存用量 · 数据保存在本机') : tr(`${data.start === data.end ? data.start : data.start + ' 至 ' + data.end} · 北京时间 · 周一开始 / 自然月 · 数据保存在本机`);
+    document.querySelector('#statistics-title').textContent = tr(`${config.label} Token 用量`);
+    document.querySelector('#statistics-day').textContent = period === 'total' ? tr('全部已保存用量 · 数据保存在本机') : period === 'custom' && statisticsCustomRange ? tr(`${new Date(statisticsCustomRange.start).toLocaleString()} 至 ${new Date(statisticsCustomRange.end).toLocaleString()} · 自定义范围 · 数据保存在本机`) : tr(`${data.start} 至 ${data.end} · 北京时间 · ${config.label} · 数据保存在本机`);
     const summary = document.querySelector('#statistics-summary');
     summary.replaceChildren(metric('总 Token', tokenNumber(totals?.total_tokens), '已收到上游用量', 'good'),
         metric('输入 Token', tokenNumber(totals?.input_tokens), `其中缓存 ${tokenNumber(totals?.cached_tokens)}`),
@@ -198,13 +216,13 @@ function renderStatistics() {
     chart.replaceChildren();
     const hours = totals?.buckets || data.buckets.map(() => 0);
     chart.hidden = period === 'year' || period === 'total'; heatmap.hidden = period !== 'year';
-    document.querySelector('#statistics-chart-title').textContent = tr(period === 'day' ? '每小时 Token' : '每日 Token');
-    if (period === 'year') { heatmap.replaceChildren(); const maxDay = Math.max(1, ...hours); hours.forEach((count, index) => { const cell = element('span', 'statistics-heatmap-cell'); cell.dataset.level = count ? Math.min(4, Math.ceil(count / maxDay * 4)) : 0; cell.title = `${data.buckets[index]} · ${number(count)} Token`; cell.setAttribute('aria-label', cell.title); heatmap.append(cell); }); }
+    document.querySelector('#statistics-chart-title').textContent = tr(config.chart);
+    if (period === 'year') { heatmap.replaceChildren(); const maxDay = Math.max(1, ...hours); hours.forEach((count, index) => { const label = `${data.buckets[index]} · ${tokenNumber(count)} Token（${number(count)}）`; const cell = element('span', 'statistics-heatmap-cell'); cell.dataset.level = count ? Math.min(4, Math.ceil(count / maxDay * 4)) : 0; cell.setAttribute('aria-label', label); cell.tabIndex = 0; const tooltip = element('span', 'statistics-heatmap-tooltip', label); tooltip.setAttribute('aria-hidden', 'true'); cell.append(tooltip); heatmap.append(cell); }); }
     const max = Math.max(1, ...hours);
-    chart.setAttribute('aria-label', hours.map((count, index) => `${data.buckets[index]} ${period === 'day' ? '点' : ''} ${number(count)} Token`).join('，'));
+    chart.setAttribute('aria-label', hours.map((count, index) => `${data.buckets[index]} ${dataKey === 'day' ? '点' : ''} ${number(count)} Token`).join('，'));
     for (let hour = 0; hour < hours.length; hour++) {
-        chart.append(statisticsColumn(period === 'day' ? hour + ':00–' + hour + ':59' : data.buckets[hour],
-            hours[hour], max, period === 'day' ? data.buckets[hour] : data.buckets[hour].slice(-2)));
+        chart.append(statisticsColumn(dataKey === 'day' ? hour + ':00–' + hour + ':59' : data.buckets[hour],
+            hours[hour], max, dataKey === 'day' ? data.buckets[hour] : data.buckets[hour].slice(-2)));
     }
     const table = document.querySelector('#statistics-rows');
     table.replaceChildren();
@@ -758,7 +776,30 @@ document.querySelector('#statistics-account').addEventListener('change', renderS
 document.querySelector('#statistics-period').addEventListener('click', event => {
     const button = event.target.closest('button[data-period]');
     if (!button) return;
+    if (button.dataset.period === 'custom') {
+        const dialog = document.querySelector('#statistics-custom-dialog');
+        const now = new Date();
+        const earlier = new Date(now.getTime() - 86400000);
+        const localValue = value => new Date(value - value.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        document.querySelector('#statistics-custom-start').value ||= localValue(earlier);
+        document.querySelector('#statistics-custom-end').value ||= localValue(now);
+        dialog.showModal();
+        return;
+    }
     statisticsPeriod = button.dataset.period;
+    renderStatistics();
+});
+document.querySelector('#statistics-custom-form').addEventListener('submit', event => {
+    const start = new Date(document.querySelector('#statistics-custom-start').value);
+    const end = new Date(document.querySelector('#statistics-custom-end').value);
+    const status = document.querySelector('#statistics-custom-status');
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) {
+        event.preventDefault();
+        status.textContent = tr('结束时间必须晚于开始时间。');
+        return;
+    }
+    statisticsCustomRange = { start: start.getTime(), end: end.getTime() };
+    statisticsPeriod = 'custom';
     renderStatistics();
 });
 document.querySelector('#statistics-period').addEventListener('keydown', event => {
