@@ -57,7 +57,15 @@ app.on('browser-window-created', (_event, window) => {
                     };
                     poll();
                 });
+                const homeToolbar = getComputedStyle(document.querySelector('#home-page .toolbar-actions'));
+                const homeButton = getComputedStyle(document.querySelector('#open-settings'));
+                const toolbarStyle = ['position', 'top', 'right', 'padding', 'borderRadius', 'backgroundColor'].map(key => homeToolbar[key]).join('|');
+                const buttonStyle = ['fontSize', 'padding', 'borderRadius'].map(key => homeButton[key]).join('|');
                 document.querySelector('#open-statistics').click(); await ready();
+                const statisticsToolbar = getComputedStyle(document.querySelector('.statistics-toolbar'));
+                const statisticsButton = getComputedStyle(document.querySelector('#statistics-period button'));
+                if (toolbarStyle !== ['position', 'top', 'right', 'padding', 'borderRadius', 'backgroundColor'].map(key => statisticsToolbar[key]).join('|')) throw Error('Statistics toolbar differs from home toolbar');
+                if (buttonStyle !== ['fontSize', 'padding', 'borderRadius'].map(key => statisticsButton[key]).join('|')) throw Error('Statistics button sizes differ from home buttons');
                 for (const period of ['ten-minutes', 'hour', 'natural-day', 'week', 'month', 'year']) {
                     document.querySelector('[data-period="' + period + '"]').click(); await ready();
                     if (!document.querySelector('[data-period="' + period + '"][aria-pressed="true"]')) throw Error('Period did not select: ' + period + ' / ' + document.querySelector('#statistics-status').textContent);
@@ -90,6 +98,19 @@ app.on('browser-window-created', (_event, window) => {
                 if (document.querySelector('#statistics-custom-dialog').open || document.querySelectorAll('#statistics-hours .hour-column').length !== 10) throw Error('Custom range was not applied');
                 document.querySelector('#back-home').click();
             })()`);
+            window.setSize(800, 790);
+            await window.webContents.executeJavaScript(`(async () => {
+                document.querySelector('#open-statistics').click();
+                await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                const toolbar = document.querySelector('.statistics-toolbar').getBoundingClientRect();
+                const title = document.querySelector('#statistics-title').getBoundingClientRect();
+                const actions = document.querySelector('.statistics-toolbar .actions').getBoundingClientRect();
+                if (toolbar.left < 0 || toolbar.right > innerWidth || toolbar.bottom >= title.top || toolbar.height > 55)
+                    throw Error('Narrow statistics toolbar overflows or covers the title');
+                if (actions.left < toolbar.left || actions.right > toolbar.right) throw Error('Statistics actions are outside toolbar');
+                document.querySelector('#back-home').click();
+            })()`);
+            window.setSize(1060, 790);
             // Let the renderer's initial refresh finish before shutting down its gateway.
             await window.webContents.executeJavaScript(`new Promise(resolve => {
                 const ready = () => document.querySelector('#refresh').disabled
